@@ -77,3 +77,41 @@ async def test_post_inventory_requires_user_id(client):
         json={"ingredient_master_id": 1, "quantity": "1"},
     )
     assert resp.status_code == 422
+
+
+async def test_get_inventory_dashboard(client, mock_db, mock_redis):
+    ing = _make_ingredient(bit_id=5, default_shelf_days=7)
+    item = _make_inventory_item(ing)
+
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = [item]
+    mock_db.execute = AsyncMock(return_value=list_result)
+
+    resp = await client.get("/api/v1/inventory", headers={"X-User-ID": "user1"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["total"] == 1
+    first = body["data"]["items"][0]
+    assert "traffic_light" in first
+    assert first["traffic_light"] in ("red", "yellow", "green")
+    assert "score" in first
+
+
+async def test_get_inventory_sorted_by_expire_date(client, mock_db, mock_redis):
+    ing = _make_ingredient()
+    item = _make_inventory_item(ing)
+
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = [item]
+    mock_db.execute = AsyncMock(return_value=list_result)
+
+    resp = await client.get(
+        "/api/v1/inventory?sort=expire_date", headers={"X-User-ID": "user1"}
+    )
+    assert resp.status_code == 200
+
+
+async def test_get_inventory_requires_user_id(client):
+    resp = await client.get("/api/v1/inventory")
+    assert resp.status_code == 422

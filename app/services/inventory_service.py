@@ -1,12 +1,13 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import redis.asyncio as aioredis
 from fastapi import HTTPException
 from app.models.ingredient import IngredientMaster
 from app.models.inventory import UserInventory
-from app.schemas.inventory import InventoryCreate
+from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard
 from app.services.bitset_service import set_bit
 
 
@@ -40,3 +41,56 @@ async def register_ingredient(
 
     await set_bit(redis, user_id, ingredient.bit_id)
     return item
+
+
+def _calc_score(risk_factor: float, quantity: float, expire_date: date) -> float:
+    days_left = max(1, (expire_date - date.today()).days)
+    return risk_factor * quantity / (days_left ** 2 + 1)
+
+
+def _traffic_light(expire_date: date, risk_factor: float) -> Literal["red", "yellow", "green"]:
+    """신호등 분류. 임계값 미확정 — 팀 내 확정 후 수정 필요."""
+    days_left = (expire_date - date.today()).days
+    if days_left <= 2 or (days_left <= 5 and risk_factor >= 2):
+        return "red"
+    if days_left <= 5 or (days_left <= 10 and risk_factor >= 2):
+        return "yellow"
+    return "green"
+
+
+async def get_dashboard(
+    db: AsyncSession,
+    user_id: str,
+    sort: str = "recommended",
+) -> InventoryDashboard:
+    result = await db.execute(
+        select(UserInventory).where(UserInventory.user_id == user_id)
+    )
+    items = result.scalars().all()
+
+    reads: list[InventoryRead] = []
+    for item in items:
+        rf = float(item.ingredient.risk_factor)
+        score = _calc_score(rf, float(item.quantity), item.expire_date)
+        tl = _traffic_light(item.expire_date, rf)
+        reads.append(
+            InventoryRead(
+                id=item.id,
+                user_id=item.user_id,
+                ingredient_master_id=item.ingredient_master_id,
+                quantity=item.quantity,
+                unit=item.unit,
+                expire_date=item.expire_date,
+                created_at=item.created_at,
+                ingredient=item.ingredient,
+                traffic_light=tl,
+                score=score,
+            )
+        )
+
+    if sort == "expire_date":
+        reads.sort(key=lambda x: x.expire_date)
+    else:
+        reads.sort(key=lambda x: x.score, reverse=True)
+
+    return InventoryDashboard(items=reads, total=len(reads))
