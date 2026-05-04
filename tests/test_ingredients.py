@@ -2,6 +2,12 @@ from app.schemas.ingredient import IngredientMasterRead
 from decimal import Decimal
 
 
+async def test_health(client):
+    resp = await client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
 def test_ingredient_master_read_schema():
     data = {
         "id": 1,
