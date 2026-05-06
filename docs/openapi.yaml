@@ -1,0 +1,508 @@
+openapi: 3.0.3
+info:
+  title: 냉장고 재고 관리 API
+  version: 0.1.0
+  description: |
+    개인 냉장고 식재료 관리 및 레시피 추천 서비스 백엔드.
+    현재 문서는 구현 완료 엔드포인트만 포함합니다 (F-01, F-02).
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: 로컬 개발 서버
+
+tags:
+  - name: ingredients
+    description: 식재료 마스터 조회
+  - name: inventory
+    description: 사용자 냉장고 재고 관리
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+securitySchemes: {}
+
+components:
+  securitySchemes:
+    UserIdHeader:
+      type: apiKey
+      in: header
+      name: X-User-ID
+      description: 임시 인증. 사용자 ID를 헤더로 직접 전달. 실제 인증 구현 시 교체 예정.
+
+  # -------------------------------------------------------------------------
+  # Schemas
+  # -------------------------------------------------------------------------
+  schemas:
+
+    IngredientMasterRead:
+      type: object
+      required: [id, bit_id, name, category, risk_factor]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        bit_id:
+          type: integer
+          description: Redis BitSet 인덱스 (0~426)
+          example: 41
+        name:
+          type: string
+          example: 계란
+        category:
+          type: string
+          enum:
+            - 곡류/면/떡
+            - 육류
+            - 생선/해산물
+            - 채소
+            - 계란/콩/두부
+            - 유제품/치즈
+            - 김치/절임/묵
+            - 해조류/건어물
+            - 과일/견과
+            - 가공식품/기타
+            - 조미료
+          example: 계란/콩/두부
+        default_shelf_days:
+          type: integer
+          nullable: true
+          description: 표준 유통기한 (일)
+          example: 21
+        risk_factor:
+          type: string
+          description: "위험가중치 α — 0.10 / 1.00 / 2.00 / 3.00"
+          example: "2.00"
+
+    InventoryCreate:
+      type: object
+      required: [ingredient_master_id]
+      properties:
+        ingredient_master_id:
+          type: integer
+          format: int64
+          description: 등록할 식재료 PK
+          example: 42
+        quantity:
+          type: number
+          description: 수량 (0 초과). 미입력 시 1.
+          default: 1
+          exclusiveMinimum: 0
+          example: 6
+        unit:
+          type: string
+          nullable: true
+          description: 단위. 미입력 시 "개".
+          example: 개
+        expire_date:
+          type: string
+          format: date
+          nullable: true
+          description: "유통기한 (YYYY-MM-DD). 미입력 시 오늘 + default_shelf_days."
+          example: "2026-05-27"
+
+    InventoryRead:
+      type: object
+      required:
+        - id
+        - user_id
+        - ingredient_master_id
+        - quantity
+        - expire_date
+        - created_at
+        - ingredient
+        - traffic_light
+        - score
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 101
+        user_id:
+          type: string
+          example: user-uuid-1234
+        ingredient_master_id:
+          type: integer
+          format: int64
+          example: 42
+        quantity:
+          type: string
+          description: Decimal 문자열
+          example: "6"
+        unit:
+          type: string
+          nullable: true
+          example: 개
+        expire_date:
+          type: string
+          format: date
+          example: "2026-05-27"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-06T10:00:00+09:00"
+        ingredient:
+          $ref: '#/components/schemas/IngredientMasterRead'
+        traffic_light:
+          type: string
+          enum: [red, yellow, green]
+          description: |
+            신호등 분류.
+            red: D-day ≤ 2, 또는 D-day ≤ 5 이고 risk_factor ≥ 2
+            yellow: D-day ≤ 5, 또는 D-day ≤ 10 이고 risk_factor ≥ 2
+            green: 그 외
+          example: green
+        score:
+          type: number
+          format: float
+          description: "α-스코어 = risk_factor × quantity / (D-day² + 1)"
+          example: 12.0
+
+    InventoryDashboard:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryRead'
+        total:
+          type: integer
+          description: 전체 재고 항목 수
+          example: 2
+
+    ApiResponseIngredient:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/IngredientMasterRead'
+        message:
+          type: string
+          example: ""
+
+    ApiResponseIngredientList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/IngredientMasterRead'
+        message:
+          type: string
+          example: ""
+
+    ApiResponseInventoryRead:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/InventoryRead'
+        message:
+          type: string
+          example: 재료가 등록되었습니다.
+
+    ApiResponseDashboard:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/InventoryDashboard'
+        message:
+          type: string
+          example: ""
+
+    ApiErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: NOT_FOUND
+            message:
+              type: string
+              example: Ingredient not found
+
+    ValidationError:
+      type: object
+      description: FastAPI 기본 422 응답 (Pydantic 유효성 검사 실패)
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  /ingredients:
+    get:
+      tags: [ingredients]
+      summary: 식재료 목록 조회
+      description: |
+        `ingredient_master` 전체 또는 필터링된 목록을 반환합니다.
+        인증 불필요.
+      operationId: listIngredients
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: 식재료명 부분 검색 (대소문자 무시)
+          schema:
+            type: string
+          example: 계란
+        - name: category
+          in: query
+          required: false
+          description: 카테고리 정확 일치 필터
+          schema:
+            type: string
+            enum:
+              - 곡류/면/떡
+              - 육류
+              - 생선/해산물
+              - 채소
+              - 계란/콩/두부
+              - 유제품/치즈
+              - 김치/절임/묵
+              - 해조류/건어물
+              - 과일/견과
+              - 가공식품/기타
+              - 조미료
+          example: 채소
+      responses:
+        '200':
+          description: 성공 (결과 없으면 data 빈 배열)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseIngredientList'
+              example:
+                success: true
+                data:
+                  - id: 42
+                    bit_id: 41
+                    name: 계란
+                    category: 계란/콩/두부
+                    default_shelf_days: 21
+                    risk_factor: "2.00"
+                message: ""
+
+  /ingredients/{id}:
+    get:
+      tags: [ingredients]
+      summary: 식재료 단건 조회
+      description: |
+        `ingredient_master.id` 기준 단건 반환.
+        인증 불필요.
+      operationId: getIngredient
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 식재료 PK
+          schema:
+            type: integer
+            format: int64
+          example: 42
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseIngredient'
+              example:
+                success: true
+                data:
+                  id: 42
+                  bit_id: 41
+                  name: 계란
+                  category: 계란/콩/두부
+                  default_shelf_days: 21
+                  risk_factor: "2.00"
+                message: ""
+        '404':
+          description: 존재하지 않는 식재료 ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Ingredient not found
+
+  /inventory:
+    post:
+      tags: [inventory]
+      summary: 재고 등록 (F-01)
+      description: |
+        사용자 냉장고에 식재료를 등록합니다.
+        DB 저장과 동시에 Redis BitSet의 `bit_id`를 1로 갱신합니다.
+
+        - `expire_date` 미입력 시: 오늘 + `ingredient_master.default_shelf_days`
+        - `unit` 미입력 시: `"개"`
+      operationId: addInventory
+      security:
+        - UserIdHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryCreate'
+            example:
+              ingredient_master_id: 42
+              quantity: 6
+              unit: 개
+              expire_date: "2026-05-27"
+      responses:
+        '201':
+          description: 등록 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseInventoryRead'
+              example:
+                success: true
+                data:
+                  id: 101
+                  user_id: user-uuid-1234
+                  ingredient_master_id: 42
+                  quantity: "6"
+                  unit: 개
+                  expire_date: "2026-05-27"
+                  created_at: "2026-05-06T10:00:00+09:00"
+                  ingredient:
+                    id: 42
+                    bit_id: 41
+                    name: 계란
+                    category: 계란/콩/두부
+                    default_shelf_days: 21
+                    risk_factor: "2.00"
+                  traffic_light: green
+                  score: 0.0
+                message: 재료가 등록되었습니다.
+        '401':
+          description: X-User-ID 헤더 누락 또는 빈 값
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: X-User-ID header is required
+        '404':
+          description: 존재하지 않는 ingredient_master_id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Ingredient not found
+        '422':
+          description: 요청 바디 유효성 검사 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+    get:
+      tags: [inventory]
+      summary: 재고 대시보드 (F-02)
+      description: |
+        현재 사용자의 전체 재고 목록을 신호등 분류 및 α-스코어와 함께 반환합니다.
+
+        **정렬 기준**
+        - `recommended` (기본값): α-스코어 내림차순 — 폐기 위험 높은 순
+        - `expire_date`: 유통기한 오름차순 — 임박한 순
+
+        **α-스코어 공식**: `risk_factor × quantity / (D-day² + 1)`
+        D-day = max(1, expire_date − 오늘)
+      operationId: getInventory
+      security:
+        - UserIdHeader: []
+      parameters:
+        - name: sort
+          in: query
+          required: false
+          description: 정렬 기준
+          schema:
+            type: string
+            enum: [recommended, expire_date]
+            default: recommended
+          example: recommended
+      responses:
+        '200':
+          description: 성공 (재고 없으면 items 빈 배열)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDashboard'
+              example:
+                success: true
+                data:
+                  total: 1
+                  items:
+                    - id: 101
+                      user_id: user-uuid-1234
+                      ingredient_master_id: 42
+                      quantity: "6"
+                      unit: 개
+                      expire_date: "2026-05-08"
+                      created_at: "2026-05-06T10:00:00+09:00"
+                      ingredient:
+                        id: 42
+                        bit_id: 41
+                        name: 계란
+                        category: 계란/콩/두부
+                        default_shelf_days: 21
+                        risk_factor: "2.00"
+                      traffic_light: red
+                      score: 12.0
+                message: ""
+        '401':
+          description: X-User-ID 헤더 누락 또는 빈 값
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: X-User-ID header is required
+        '422':
+          description: sort 파라미터 허용값 외 값 입력
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
