@@ -9,7 +9,7 @@ async def signup(supabase: AsyncClient, email: str, password: str) -> dict:
         msg = str(e).lower()
         if "already registered" in msg or "already in use" in msg:
             raise HTTPException(status_code=400, detail="Email already registered")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Signup failed. Please check your input.")
 
     if response.user is None:
         raise HTTPException(status_code=400, detail="Email already registered")

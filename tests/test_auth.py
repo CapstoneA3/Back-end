@@ -113,7 +113,8 @@ async def test_me_success(auth_client):
 
 async def test_me_missing_authorization_header(auth_client):
     resp = await auth_client.get("/api/v1/auth/me")
-    assert resp.status_code == 422
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authorization header required"
 
 
 async def test_me_invalid_token(auth_client, mock_supabase):
