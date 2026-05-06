@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, AsyncMock
 from decimal import Decimal
 from datetime import date, timedelta, datetime
@@ -50,7 +49,6 @@ async def test_post_inventory_registers_ingredient(client, mock_db, mock_redis):
     resp = await client.post(
         "/api/v1/inventory",
         json={"ingredient_master_id": 1, "quantity": "2", "unit": "개"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -66,17 +64,8 @@ async def test_post_inventory_ingredient_not_found(client, mock_db, mock_redis):
     resp = await client.post(
         "/api/v1/inventory",
         json={"ingredient_master_id": 9999, "quantity": "1"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 404
-
-
-async def test_post_inventory_requires_user_id(client):
-    resp = await client.post(
-        "/api/v1/inventory",
-        json={"ingredient_master_id": 1, "quantity": "1"},
-    )
-    assert resp.status_code == 422
 
 
 async def test_get_inventory_dashboard(client, mock_db, mock_redis):
@@ -87,7 +76,7 @@ async def test_get_inventory_dashboard(client, mock_db, mock_redis):
     list_result.scalars.return_value.all.return_value = [item]
     mock_db.execute = AsyncMock(return_value=list_result)
 
-    resp = await client.get("/api/v1/inventory", headers={"X-User-ID": "user1"})
+    resp = await client.get("/api/v1/inventory")
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
@@ -106,12 +95,5 @@ async def test_get_inventory_sorted_by_expire_date(client, mock_db, mock_redis):
     list_result.scalars.return_value.all.return_value = [item]
     mock_db.execute = AsyncMock(return_value=list_result)
 
-    resp = await client.get(
-        "/api/v1/inventory?sort=expire_date", headers={"X-User-ID": "user1"}
-    )
+    resp = await client.get("/api/v1/inventory?sort=expire_date")
     assert resp.status_code == 200
-
-
-async def test_get_inventory_requires_user_id(client):
-    resp = await client.get("/api/v1/inventory")
-    assert resp.status_code == 422
