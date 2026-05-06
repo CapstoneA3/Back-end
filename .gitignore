@@ -9,3 +9,4 @@ venv/
 dist/
 build/
 .ruff_cache/
+.worktrees/
