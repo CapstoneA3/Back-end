@@ -37,6 +37,7 @@ async def test_post_inventory_registers_ingredient(client, mock_db, mock_redis):
     mock_db.execute = AsyncMock(return_value=find_result)
     mock_db.add = MagicMock()
     mock_db.commit = AsyncMock()
+
     def _refresh_side_effect(obj):
         obj.id = item.id
         obj.created_at = item.created_at
@@ -50,7 +51,6 @@ async def test_post_inventory_registers_ingredient(client, mock_db, mock_redis):
     resp = await client.post(
         "/api/v1/inventory",
         json={"ingredient_master_id": 1, "quantity": "2", "unit": "개"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -66,17 +66,8 @@ async def test_post_inventory_ingredient_not_found(client, mock_db, mock_redis):
     resp = await client.post(
         "/api/v1/inventory",
         json={"ingredient_master_id": 9999, "quantity": "1"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 404
-
-
-async def test_post_inventory_requires_user_id(client):
-    resp = await client.post(
-        "/api/v1/inventory",
-        json={"ingredient_master_id": 1, "quantity": "1"},
-    )
-    assert resp.status_code == 422
 
 
 async def test_get_inventory_dashboard(client, mock_db, mock_redis):
@@ -87,7 +78,7 @@ async def test_get_inventory_dashboard(client, mock_db, mock_redis):
     list_result.scalars.return_value.all.return_value = [item]
     mock_db.execute = AsyncMock(return_value=list_result)
 
-    resp = await client.get("/api/v1/inventory", headers={"X-User-ID": "user1"})
+    resp = await client.get("/api/v1/inventory")
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
@@ -106,15 +97,8 @@ async def test_get_inventory_sorted_by_expire_date(client, mock_db, mock_redis):
     list_result.scalars.return_value.all.return_value = [item]
     mock_db.execute = AsyncMock(return_value=list_result)
 
-    resp = await client.get(
-        "/api/v1/inventory?sort=expire_date", headers={"X-User-ID": "user1"}
-    )
+    resp = await client.get("/api/v1/inventory?sort=expire_date")
     assert resp.status_code == 200
-
-
-async def test_get_inventory_requires_user_id(client):
-    resp = await client.get("/api/v1/inventory")
-    assert resp.status_code == 422
 
 
 # ── delete_inventory_item 테스트 ──────────────────────────────
@@ -237,34 +221,29 @@ async def test_delete_inventory_endpoint_success(client, mock_db, mock_redis):
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.set = AsyncMock()
 
-    resp = await client.delete("/api/v1/inventory/10", headers={"X-User-ID": "user1"})
+    resp = await client.delete("/api/v1/inventory/10")
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
     assert body["message"] == "재료가 삭제되었습니다."
-    assert body["data"] is None   # ← add this line
+    assert body["data"] is None
 
 
 async def test_delete_inventory_endpoint_not_found(client, mock_db, mock_redis):
     """존재하지 않는 inventory_id → HTTP 404."""
     mock_db.get = AsyncMock(return_value=None)
-    resp = await client.delete("/api/v1/inventory/9999", headers={"X-User-ID": "user1"})
+    resp = await client.delete("/api/v1/inventory/9999")
     assert resp.status_code == 404
 
 
 async def test_delete_inventory_endpoint_forbidden(client, mock_db, mock_redis):
-    """다른 유저의 항목 삭제 → HTTP 403."""
+    """다른 유저 소유 항목 삭제 → HTTP 403."""
     ing = _make_ingredient()
-    item = _make_inventory_item(ing)  # item.user_id == "user1"
+    item = _make_inventory_item(ing)
+    item.user_id = "other_user"  # 현재 사용자(user1)가 아닌 타인 소유
     mock_db.get = AsyncMock(return_value=item)
-    resp = await client.delete("/api/v1/inventory/10", headers={"X-User-ID": "other_user"})
-    assert resp.status_code == 403
-
-
-async def test_delete_inventory_endpoint_requires_user_id(client):
-    """X-User-ID 헤더 없으면 422."""
     resp = await client.delete("/api/v1/inventory/10")
-    assert resp.status_code == 422
+    assert resp.status_code == 403
 
 
 # ── update_inventory_item 테스트 ──────────────────────────
@@ -442,7 +421,6 @@ async def test_patch_inventory_endpoint_success(client, mock_db, mock_redis):
     resp = await client.patch(
         "/api/v1/inventory/10",
         json={"quantity": "3"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -456,25 +434,18 @@ async def test_patch_inventory_endpoint_not_found(client, mock_db, mock_redis):
     resp = await client.patch(
         "/api/v1/inventory/9999",
         json={"quantity": "1"},
-        headers={"X-User-ID": "user1"},
     )
     assert resp.status_code == 404
 
 
 async def test_patch_inventory_endpoint_forbidden(client, mock_db, mock_redis):
-    """다른 유저 항목 수정 → 403."""
+    """다른 유저 소유 항목 수정 → 403."""
     ing = _make_ingredient()
-    item = _make_inventory_item(ing)  # item.user_id == "user1"
+    item = _make_inventory_item(ing)
+    item.user_id = "other_user"  # 현재 사용자(user1)가 아닌 타인 소유
     mock_db.get = AsyncMock(return_value=item)
     resp = await client.patch(
         "/api/v1/inventory/10",
         json={"quantity": "1"},
-        headers={"X-User-ID": "other_user"},
     )
     assert resp.status_code == 403
-
-
-async def test_patch_inventory_endpoint_requires_user_id(client):
-    """X-User-ID 없으면 422."""
-    resp = await client.patch("/api/v1/inventory/10", json={"quantity": "1"})
-    assert resp.status_code == 422
