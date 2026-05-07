@@ -140,11 +140,6 @@ async def update_inventory_item(
     if item.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    if data.unit is not None:
-        item.unit = data.unit
-    if data.expire_date is not None:
-        item.expire_date = data.expire_date
-
     if data.quantity is not None:
         if data.quantity == 0:
             ingredient_master_id = item.ingredient_master_id
@@ -164,6 +159,12 @@ async def update_inventory_item(
             return item
         else:
             item.quantity = data.quantity
+
+    # Only apply field mutations when row survives
+    if data.unit is not None:
+        item.unit = data.unit
+    if data.expire_date is not None:
+        item.expire_date = data.expire_date
 
     await db.commit()
     return item

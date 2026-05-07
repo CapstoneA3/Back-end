@@ -280,7 +280,7 @@ async def test_update_inventory_item_quantity(mock_db, mock_redis):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    result = await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
 
     assert item.quantity == Decimal("5")
     mock_db.commit.assert_called_once()
@@ -331,6 +331,55 @@ async def test_update_inventory_item_zero_quantity_deletes_and_clears_bit(mock_d
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
     mock_redis.set.assert_called_once()  # bit clear 호출
+
+
+async def test_update_inventory_item_zero_quantity_remaining_keeps_bit(mock_db, mock_redis):
+    """zero-quantity이지만 같은 재료 행이 남아있으면 bit를 clear하지 않는다."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    mock_db.get = AsyncMock(return_value=item)
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1  # 남은 재고 있음
+    mock_db.execute = AsyncMock(return_value=count_result)
+
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
+
+    mock_db.delete.assert_called_once_with(item)
+    mock_db.commit.assert_called_once()
+    mock_redis.set.assert_not_called()  # bit clear 호출 안 됨
+
+
+async def test_update_inventory_item_zero_quantity_missing_master_no_raise(mock_db, mock_redis):
+    """zero-quantity이고 remaining==0이지만 IngredientMaster가 없어도 예외 없이 완료."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    mock_db.get = AsyncMock(side_effect=[item, None])  # item found, ingredient not found
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 0
+    mock_db.execute = AsyncMock(return_value=count_result)
+
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
+
+    mock_db.delete.assert_called_once_with(item)
+    mock_redis.set.assert_not_called()  # ingredient 없으면 bit clear 안 함
 
 
 async def test_update_inventory_item_not_found(mock_db, mock_redis):
