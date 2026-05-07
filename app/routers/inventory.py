@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Literal
-import redis.asyncio as aioredis
 from app.core.database import get_db
-from app.core.redis_client import get_redis
 from app.dependencies.auth import get_current_user_id
 from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard, InventoryUpdate
 from app.schemas.common import ApiResponse
@@ -17,9 +15,8 @@ async def add_inventory(
     data: InventoryCreate,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
-    redis: aioredis.Redis = Depends(get_redis),
 ):
-    item = await register_ingredient(db, redis, user_id, data)
+    item = await register_ingredient(db, user_id, data)
     return ApiResponse(success=True, data=item, message="재료가 등록되었습니다.")
 
 
@@ -39,9 +36,8 @@ async def patch_inventory_item(
     data: InventoryUpdate,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
-    redis: aioredis.Redis = Depends(get_redis),
 ):
-    await update_inventory_item(db, redis, user_id, inventory_id, data)
+    await update_inventory_item(db, user_id, inventory_id, data)
     return ApiResponse(success=True, data=None, message="재고가 수정되었습니다.")
 
 
@@ -50,7 +46,6 @@ async def delete_inventory_item_endpoint(
     inventory_id: int,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
-    redis: aioredis.Redis = Depends(get_redis),
 ):
-    await delete_inventory_item(db, redis, user_id, inventory_id)
+    await delete_inventory_item(db, user_id, inventory_id)
     return ApiResponse(success=True, data=None, message="재료가 삭제되었습니다.")
