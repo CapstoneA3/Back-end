@@ -38,6 +38,7 @@ async def delete_inventory(
     inventory_id: int,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    await delete_ingredient(db, user_id, inventory_id)
+    await delete_ingredient(db, redis, user_id, inventory_id)
     return ApiResponse(success=True, data=None, message="재료가 삭제되었습니다.")
