@@ -117,7 +117,7 @@ async def test_get_inventory_requires_user_id(client):
     assert resp.status_code == 422
 
 
-# ── delete_ingredient 테스트 ──────────────────────────────
+# ── delete_inventory_item 테스트 ──────────────────────────────
 
 async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
     """마지막 항목 삭제 시 Redis bit가 clear되어야 한다."""
