@@ -36,6 +36,7 @@ async def register_ingredient(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    item.ingredient = ingredient  # refresh 후 관계 재할당 (lazy="raise" 우회)
     return item
 
 
