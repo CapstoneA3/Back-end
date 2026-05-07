@@ -119,8 +119,9 @@ async def delete_ingredient(
             UserInventory.ingredient_master_id == ingredient_master_id,
         )
     )
-    remaining = result.scalar()
+    remaining = result.scalar_one()
 
     if remaining == 0:
         ingredient = await db.get(IngredientMaster, ingredient_master_id)
-        await clear_bit(redis, user_id, ingredient.bit_id)
+        if ingredient:
+            await clear_bit(redis, user_id, ingredient.bit_id)

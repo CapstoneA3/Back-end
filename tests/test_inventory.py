@@ -133,7 +133,7 @@ async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
 
     # COUNT 쿼리 → 0 (마지막 항목이었음)
     count_result = MagicMock()
-    count_result.scalar.return_value = 0
+    count_result.scalar_one.return_value = 0
     mock_db.execute = AsyncMock(return_value=count_result)
 
     mock_redis.get = AsyncMock(return_value=None)
@@ -144,6 +144,30 @@ async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
     mock_redis.set.assert_called_once()  # bit clear 호출됨
+
+
+async def test_delete_inventory_missing_master_does_not_raise(mock_db, mock_redis):
+    """remaining==0이지만 IngredientMaster가 없어도 예외 없이 완료되어야 한다."""
+    from app.services.inventory_service import delete_ingredient
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    # 두 번째 db.get(IngredientMaster)가 None 반환
+    mock_db.get = AsyncMock(side_effect=[item, None])
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 0
+    mock_db.execute = AsyncMock(return_value=count_result)
+
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock()
+
+    await delete_ingredient(mock_db, mock_redis, "user1", 10)
+
+    mock_redis.set.assert_not_called()  # ingredient 없으면 bit clear 안 함
 
 
 async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
@@ -159,7 +183,7 @@ async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
 
     # COUNT 쿼리 → 1 (다른 배치 남아있음)
     count_result = MagicMock()
-    count_result.scalar.return_value = 1
+    count_result.scalar_one.return_value = 1
     mock_db.execute = AsyncMock(return_value=count_result)
 
     mock_redis.get = AsyncMock(return_value=None)
@@ -168,6 +192,7 @@ async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
     await delete_ingredient(mock_db, mock_redis, "user1", 10)
 
     mock_db.delete.assert_called_once_with(item)
+    mock_db.commit.assert_called_once()
     mock_redis.set.assert_not_called()  # bit clear 호출 안 됨
 
 
