@@ -121,7 +121,7 @@ async def test_get_inventory_requires_user_id(client):
 
 async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
     """마지막 항목 삭제 시 Redis bit가 clear되어야 한다."""
-    from app.services.inventory_service import delete_ingredient
+    from app.services.inventory_service import delete_inventory_item
 
     ing = _make_ingredient(bit_id=5)
     item = _make_inventory_item(ing)
@@ -137,7 +137,7 @@ async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.set = AsyncMock()
 
-    await delete_ingredient(mock_db, mock_redis, "user1", 10)
+    await delete_inventory_item(mock_db, mock_redis, "user1", 10)
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
@@ -146,7 +146,7 @@ async def test_delete_inventory_last_item_clears_bit(mock_db, mock_redis):
 
 async def test_delete_inventory_missing_master_does_not_raise(mock_db, mock_redis):
     """remaining==0이지만 IngredientMaster가 없어도 예외 없이 완료되어야 한다."""
-    from app.services.inventory_service import delete_ingredient
+    from app.services.inventory_service import delete_inventory_item
 
     ing = _make_ingredient(bit_id=5)
     item = _make_inventory_item(ing)
@@ -162,14 +162,14 @@ async def test_delete_inventory_missing_master_does_not_raise(mock_db, mock_redi
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.set = AsyncMock()
 
-    await delete_ingredient(mock_db, mock_redis, "user1", 10)
+    await delete_inventory_item(mock_db, mock_redis, "user1", 10)
 
     mock_redis.set.assert_not_called()  # ingredient 없으면 bit clear 안 함
 
 
 async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
     """같은 재료 항목이 남아있으면 bit를 clear하지 않아야 한다."""
-    from app.services.inventory_service import delete_ingredient
+    from app.services.inventory_service import delete_inventory_item
 
     ing = _make_ingredient(bit_id=5)
     item = _make_inventory_item(ing)
@@ -185,7 +185,7 @@ async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.set = AsyncMock()
 
-    await delete_ingredient(mock_db, mock_redis, "user1", 10)
+    await delete_inventory_item(mock_db, mock_redis, "user1", 10)
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
@@ -194,19 +194,19 @@ async def test_delete_inventory_remaining_items_keep_bit(mock_db, mock_redis):
 
 async def test_delete_inventory_not_found(mock_db, mock_redis):
     """존재하지 않는 inventory_id → 404."""
-    from app.services.inventory_service import delete_ingredient
+    from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
     mock_db.get = AsyncMock(return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_ingredient(mock_db, mock_redis, "user1", 9999)
+        await delete_inventory_item(mock_db, mock_redis, "user1", 9999)
     assert exc.value.status_code == 404
 
 
 async def test_delete_inventory_forbidden(mock_db, mock_redis):
     """다른 유저의 항목 삭제 시도 → 403."""
-    from app.services.inventory_service import delete_ingredient
+    from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
     ing = _make_ingredient()
@@ -215,7 +215,7 @@ async def test_delete_inventory_forbidden(mock_db, mock_redis):
     mock_db.get = AsyncMock(return_value=item)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_ingredient(mock_db, mock_redis, "other_user", 10)
+        await delete_inventory_item(mock_db, mock_redis, "other_user", 10)
     assert exc.value.status_code == 403
 
 

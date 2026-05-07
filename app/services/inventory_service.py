@@ -97,7 +97,7 @@ async def get_dashboard(
     return InventoryDashboard(items=reads, total=len(reads))
 
 
-async def delete_ingredient(
+async def delete_inventory_item(
     db: AsyncSession,
     redis: aioredis.Redis,
     user_id: str,
