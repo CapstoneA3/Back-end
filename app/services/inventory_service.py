@@ -2,13 +2,13 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 import redis.asyncio as aioredis
 from fastapi import HTTPException
 from app.models.ingredient import IngredientMaster
 from app.models.inventory import UserInventory
 from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard
-from app.services.bitset_service import set_bit
+from app.services.bitset_service import set_bit, clear_bit
 
 
 async def register_ingredient(
@@ -24,7 +24,8 @@ async def register_ingredient(
     if not ingredient:
         raise HTTPException(status_code=404, detail="Ingredient not found")
 
-    expire_date = data.expire_date or (date.today() + timedelta(days=ingredient.default_shelf_days))
+    shelf_days = ingredient.default_shelf_days or 7
+    expire_date = data.expire_date or (date.today() + timedelta(days=shelf_days))
     unit = data.unit or "개"
 
     item = UserInventory(
@@ -94,3 +95,32 @@ async def get_dashboard(
         reads.sort(key=lambda x: x.score, reverse=True)
 
     return InventoryDashboard(items=reads, total=len(reads))
+
+
+async def delete_ingredient(
+    db: AsyncSession,
+    redis: aioredis.Redis,
+    user_id: str,
+    inventory_id: int,
+) -> None:
+    item = await db.get(UserInventory, inventory_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    if item.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    ingredient_master_id = item.ingredient_master_id
+    await db.delete(item)
+    await db.commit()
+
+    result = await db.execute(
+        select(func.count()).select_from(UserInventory).where(
+            UserInventory.user_id == user_id,
+            UserInventory.ingredient_master_id == ingredient_master_id,
+        )
+    )
+    remaining = result.scalar()
+
+    if remaining == 0:
+        ingredient = await db.get(IngredientMaster, ingredient_master_id)
+        await clear_bit(redis, user_id, ingredient.bit_id)
