@@ -13,7 +13,11 @@ class InventoryCreate(BaseModel):
 
 
 class InventoryUpdate(BaseModel):
-    quantity: Optional[Decimal] = Field(default=None, ge=0)
+    quantity: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        description="재고 수량. 0을 전달하면 해당 항목이 삭제됩니다.",
+    )
     unit: Optional[str] = None
     expire_date: Optional[date] = None
 
