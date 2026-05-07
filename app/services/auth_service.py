@@ -1,11 +1,23 @@
+import logging
+
 from fastapi import HTTPException
 from supabase import AsyncClient
+
+logger = logging.getLogger(__name__)
 
 
 async def signup(supabase: AsyncClient, email: str, password: str) -> dict:
     try:
         response = await supabase.auth.sign_up({"email": email, "password": password})
     except Exception as e:
+        logger.error(
+            "Signup exception | type=%s | str=%s | repr=%s | args=%s | attrs=%s",
+            type(e).__name__,
+            str(e),
+            repr(e),
+            e.args,
+            {k: v for k, v in vars(e).items() if not k.startswith("_")} if vars(e) else {},
+        )
         msg = str(e).lower()
         if "already registered" in msg or "already in use" in msg:
             raise HTTPException(status_code=400, detail="Email already registered")

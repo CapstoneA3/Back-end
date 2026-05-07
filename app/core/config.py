@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": (".env", ".env.local"), "env_file_encoding": "utf-8"}
 
 
 settings = Settings()
