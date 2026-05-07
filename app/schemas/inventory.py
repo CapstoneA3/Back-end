@@ -12,6 +12,12 @@ class InventoryCreate(BaseModel):
     expire_date: Optional[date] = None
 
 
+class InventoryUpdate(BaseModel):
+    quantity: Optional[Decimal] = Field(default=None, ge=0)
+    unit: Optional[str] = None
+    expire_date: Optional[date] = None
+
+
 class InventoryRead(BaseModel):
     id: int
     user_id: str
