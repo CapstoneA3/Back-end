@@ -99,7 +99,6 @@ async def get_dashboard(
 
 async def delete_ingredient(
     db: AsyncSession,
-    redis: aioredis.Redis,
     user_id: str,
     inventory_id: int,
 ) -> None:
@@ -109,19 +108,5 @@ async def delete_ingredient(
     if item.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    ingredient_master_id = item.ingredient_master_id
     await db.delete(item)
     await db.commit()
-
-    result = await db.execute(
-        select(func.count()).select_from(UserInventory).where(
-            UserInventory.user_id == user_id,
-            UserInventory.ingredient_master_id == ingredient_master_id,
-        )
-    )
-    remaining = result.scalar_one()
-
-    if remaining == 0:
-        ingredient = await db.get(IngredientMaster, ingredient_master_id)
-        if ingredient:
-            await clear_bit(redis, user_id, ingredient.bit_id)
