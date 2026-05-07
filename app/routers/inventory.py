@@ -5,9 +5,9 @@ import redis.asyncio as aioredis
 from app.core.database import get_db
 from app.core.redis_client import get_redis
 from app.dependencies.auth import get_current_user_id
-from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard
+from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard, InventoryUpdate
 from app.schemas.common import ApiResponse
-from app.services.inventory_service import register_ingredient, get_dashboard, delete_inventory_item
+from app.services.inventory_service import register_ingredient, get_dashboard, delete_inventory_item, update_inventory_item
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -31,6 +31,18 @@ async def get_inventory(
 ):
     dashboard = await get_dashboard(db, user_id, sort)
     return ApiResponse(success=True, data=dashboard)
+
+
+@router.patch("/{inventory_id}", response_model=ApiResponse[None], status_code=200)
+async def patch_inventory_item(
+    inventory_id: int,
+    data: InventoryUpdate,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    await update_inventory_item(db, redis, user_id, inventory_id, data)
+    return ApiResponse(success=True, data=None, message="재고가 수정되었습니다.")
 
 
 @router.delete("/{inventory_id}", response_model=ApiResponse[None], status_code=200)

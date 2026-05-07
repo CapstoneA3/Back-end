@@ -427,3 +427,54 @@ async def test_update_inventory_item_no_fields_is_noop(mock_db, mock_redis):
 
     assert item.quantity == original_qty
     mock_db.commit.assert_called_once()
+
+
+# ── PATCH /inventory/{id} 라우터 테스트 ──────────────────
+
+async def test_patch_inventory_endpoint_success(client, mock_db, mock_redis):
+    """수량 변경 요청 → 200, success=True, data=None."""
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    mock_db.get = AsyncMock(return_value=item)
+    mock_db.commit = AsyncMock()
+
+    resp = await client.patch(
+        "/api/v1/inventory/10",
+        json={"quantity": "3"},
+        headers={"X-User-ID": "user1"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"] is None
+
+
+async def test_patch_inventory_endpoint_not_found(client, mock_db, mock_redis):
+    """존재하지 않는 id → 404."""
+    mock_db.get = AsyncMock(return_value=None)
+    resp = await client.patch(
+        "/api/v1/inventory/9999",
+        json={"quantity": "1"},
+        headers={"X-User-ID": "user1"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_patch_inventory_endpoint_forbidden(client, mock_db, mock_redis):
+    """다른 유저 항목 수정 → 403."""
+    ing = _make_ingredient()
+    item = _make_inventory_item(ing)  # item.user_id == "user1"
+    mock_db.get = AsyncMock(return_value=item)
+    resp = await client.patch(
+        "/api/v1/inventory/10",
+        json={"quantity": "1"},
+        headers={"X-User-ID": "other_user"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_patch_inventory_endpoint_requires_user_id(client):
+    """X-User-ID 없으면 422."""
+    resp = await client.patch("/api/v1/inventory/10", json={"quantity": "1"})
+    assert resp.status_code == 422
