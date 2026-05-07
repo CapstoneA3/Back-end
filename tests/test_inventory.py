@@ -242,6 +242,23 @@ async def test_delete_inventory_endpoint_success(client, mock_db, mock_redis):
     body = resp.json()
     assert body["success"] is True
     assert body["message"] == "재료가 삭제되었습니다."
+    assert body["data"] is None   # ← add this line
+
+
+async def test_delete_inventory_endpoint_not_found(client, mock_db, mock_redis):
+    """존재하지 않는 inventory_id → HTTP 404."""
+    mock_db.get = AsyncMock(return_value=None)
+    resp = await client.delete("/api/v1/inventory/9999", headers={"X-User-ID": "user1"})
+    assert resp.status_code == 404
+
+
+async def test_delete_inventory_endpoint_forbidden(client, mock_db, mock_redis):
+    """다른 유저의 항목 삭제 → HTTP 403."""
+    ing = _make_ingredient()
+    item = _make_inventory_item(ing)  # item.user_id == "user1"
+    mock_db.get = AsyncMock(return_value=item)
+    resp = await client.delete("/api/v1/inventory/10", headers={"X-User-ID": "other_user"})
+    assert resp.status_code == 403
 
 
 async def test_delete_inventory_endpoint_requires_user_id(client):
