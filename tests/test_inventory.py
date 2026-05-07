@@ -265,3 +265,116 @@ async def test_delete_inventory_endpoint_requires_user_id(client):
     """X-User-ID 헤더 없으면 422."""
     resp = await client.delete("/api/v1/inventory/10")
     assert resp.status_code == 422
+
+
+# ── update_inventory_item 테스트 ──────────────────────────
+
+async def test_update_inventory_item_quantity(mock_db, mock_redis):
+    """수량만 변경 → DB 커밋, Redis 미변경."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    mock_db.get = AsyncMock(return_value=item)
+    mock_db.commit = AsyncMock()
+
+    result = await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
+
+    assert item.quantity == Decimal("5")
+    mock_db.commit.assert_called_once()
+    mock_redis.set.assert_not_called()  # 수량 변경만이면 Redis 미변경
+
+
+async def test_update_inventory_item_unit_and_expire(mock_db, mock_redis):
+    """단위·유통기한 변경 → DB 커밋, Redis 미변경."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+    from datetime import date, timedelta
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+    new_date = date.today() + timedelta(days=14)
+
+    mock_db.get = AsyncMock(return_value=item)
+    mock_db.commit = AsyncMock()
+
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(unit="g", expire_date=new_date))
+
+    assert item.unit == "g"
+    assert item.expire_date == new_date
+    mock_db.commit.assert_called_once()
+    mock_redis.set.assert_not_called()
+
+
+async def test_update_inventory_item_zero_quantity_deletes_and_clears_bit(mock_db, mock_redis):
+    """수량이 0이 되면 행 삭제 + Redis bit clear."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+
+    ing = _make_ingredient(bit_id=5)
+    item = _make_inventory_item(ing)
+
+    mock_db.get = AsyncMock(side_effect=[item, ing])
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.set = AsyncMock()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 0
+    mock_db.execute = AsyncMock(return_value=count_result)
+
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
+
+    mock_db.delete.assert_called_once_with(item)
+    mock_db.commit.assert_called_once()
+    mock_redis.set.assert_called_once()  # bit clear 호출
+
+
+async def test_update_inventory_item_not_found(mock_db, mock_redis):
+    """존재하지 않는 inventory_id → 404."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+    from fastapi import HTTPException
+
+    mock_db.get = AsyncMock(return_value=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await update_inventory_item(mock_db, mock_redis, "user1", 9999, InventoryUpdate(quantity=Decimal("2")))
+    assert exc.value.status_code == 404
+
+
+async def test_update_inventory_item_forbidden(mock_db, mock_redis):
+    """다른 유저의 항목 수정 시도 → 403."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+    from fastapi import HTTPException
+
+    ing = _make_ingredient()
+    item = _make_inventory_item(ing)  # item.user_id == "user1"
+
+    mock_db.get = AsyncMock(return_value=item)
+
+    with pytest.raises(HTTPException) as exc:
+        await update_inventory_item(mock_db, mock_redis, "other_user", 10, InventoryUpdate(quantity=Decimal("2")))
+    assert exc.value.status_code == 403
+
+
+async def test_update_inventory_item_no_fields_is_noop(mock_db, mock_redis):
+    """변경 필드 없음 → DB 커밋만, Redis 미변경."""
+    from app.services.inventory_service import update_inventory_item
+    from app.schemas.inventory import InventoryUpdate
+
+    ing = _make_ingredient()
+    item = _make_inventory_item(ing)
+    original_qty = item.quantity
+
+    mock_db.get = AsyncMock(return_value=item)
+    mock_db.commit = AsyncMock()
+
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate())
+
+    assert item.quantity == original_qty
+    mock_db.commit.assert_called_once()
