@@ -572,3 +572,161 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 | 401 | Authorization 헤더 누락 또는 토큰 만료·무효 |
 | 403 | 다른 사용자 소유의 재고 항목 |
 | 404 | 존재하지 않는 inventory id |
+
+---
+
+## 레시피 API — 예정 (Recipes)
+
+> 아직 구현되지 않은 엔드포인트입니다. 명세만 기술합니다.
+
+| 메서드 | 경로 | 설명 | 기능 |
+|--------|------|------|------|
+| GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) |
+| GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | — |
+| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) |
+
+### GET `/recipes` — 추천 레시피 목록 (F-03)
+
+사용자 보유 재료 BitSet과 각 레시피의 `requirement_mask`를 AND 연산하여 조리 가능 레시피를 필터링하고, α-스코어 내림차순으로 정렬해 반환한다.
+
+**Bearer 토큰 필수**
+
+### POST `/recipes/{id}/complete` — 요리 완료 처리 (F-04)
+
+레시피 재료를 FIFO(expire_date 오름차순) 방식으로 재고에서 차감한다. 소진된 재료는 BitSet에서 해당 비트를 0으로 전환한다.
+
+**Bearer 토큰 필수**
+
+---
+
+## 공통 응답 스키마
+
+### 성공 응답
+
+```json
+{
+  "success": true,
+  "data": { },
+  "message": "string"
+}
+```
+
+### 실패 응답
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "설명"
+  }
+}
+```
+
+### HTTP 상태 코드
+
+| 코드 | 의미 |
+|------|------|
+| 200 | 조회 성공 |
+| 201 | 생성 성공 |
+| 400 | 잘못된 요청 |
+| 401 | 인증 실패 (헤더 누락 또는 토큰 만료) |
+| 403 | 권한 없음 (타인 소유 리소스) |
+| 404 | 리소스 없음 |
+| 422 | 요청 바디 파싱 실패 |
+| 500 | 서버 내부 오류 |
+
+---
+
+## 핵심 알고리즘
+
+### 1. BitSet 구조
+
+각 식재료는 `ingredient_master.bit_id` (0~426)를 인덱스로 Redis에 비트 배열로 캐싱된다. 보유하면 1, 미보유면 0.
+
+```
+예) bit_id=0 (쌀) 보유, bit_id=2 (계란) 보유, bit_id=5 (우유) 미보유
+→ ...001 0101  (이진수)
+```
+
+- Redis 키: `user:{user_id}:bitset`
+- 갱신 시점: 재료 추가 / 재료 삭제 / 요리 완료
+
+---
+
+### 2. 비트마스킹 레시피 매칭
+
+각 레시피는 필요 재료의 `bit_id` 집합으로 구성된 `requirement_mask`를 보유한다. AND 연산으로 조리 가능 여부를 O(1)에 판단한다.
+
+```python
+# 조리 가능 조건
+(user_bitset & recipe_mask) == recipe_mask
+
+# requirement_mask 생성
+mask = 0
+for ingredient in recipe.ingredients:
+    mask |= (1 << ingredient.bit_id)
+```
+
+전체 레시피 순회는 O(n).
+
+---
+
+### 3. α-스코어링 레시피 우선순위 정렬
+
+조리 가능 레시피 중 **폐기 위험이 높은 재료를 먼저 소비**할 수 있는 레시피를 상위에 노출한다.
+
+```
+# 재료별 스코어
+score_ingredient = α × quantity / (D-day² + 1)
+
+# 레시피 스코어 합산
+score_recipe = Σ score_ingredient  (레시피에 포함된 보유 재료 전체)
+
+- α     : risk_factor (0.1 / 1 / 2 / 3)
+- D-day : max(1, expire_date − 오늘)
+```
+
+**risk_factor (α) 기준 (FDA)**
+
+| α | 분류 | 예시 |
+|---|------|------|
+| 3 | 육류·어패류·유제품 | 고기, 생선, 우유 |
+| 2 | 고수분·가열 식품 | 딸기, 두부, 베이컨 |
+| 1 | 장기 보관 가능 농산물 | 감자, 양파, 사과 |
+| 0.1 | 저수분·건조 가공식품 | 쌀, 파스타면, 조미료 |
+
+---
+
+### 4. FIFO 재고 차감
+
+'요리 완료' 시 레시피 재료를 `expire_date` 오름차순(선입선출)으로 차감한다.
+
+```
+1. recipe_ingredient 목록 조회
+2. 각 재료별 user_inventory → expire_date 오름차순 정렬
+3. 필요 수량만큼 순차 차감; 수량 0이 되면 해당 row 삭제
+4. 재고 완전 소진 시 BitSet Bit-Flip:
+   if sum(remaining quantity) == 0:
+       user_bitset &= ~(1 << bit_id)  # 해당 비트 OFF
+```
+
+---
+
+## 구현 현황
+
+| 기능 ID | 기능 | 엔드포인트 | 상태 |
+|---------|------|-----------|------|
+| — | 인증 (회원가입·로그인·내 정보) | `POST /auth/signup`, `POST /auth/login`, `GET /auth/me` | ✅ 완료 |
+| — | 식재료 마스터 조회 | `GET /ingredients`, `GET /ingredients/{id}` | ✅ 완료 |
+| F-01 | 식재료 등록 | `POST /inventory` | ✅ 완료 |
+| F-02 | 재고 대시보드 (신호등 + α-스코어) | `GET /inventory` | ✅ 완료 |
+| F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | 🔲 예정 |
+| F-04 | 요리 완료 처리 (FIFO 차감) | `POST /recipes/{id}/complete` | 🔲 예정 |
+| F-05 | 재고 수정·삭제 | `PATCH /inventory/{id}`, `DELETE /inventory/{id}` | ✅ 완료 |
+
+### 보류 기능
+
+| 기능 | 설명 |
+|------|------|
+| OCR 영수증 인식 | 영수증 촬영으로 식재료 일괄 등록 |
