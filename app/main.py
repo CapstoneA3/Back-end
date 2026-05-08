@@ -1,6 +1,28 @@
-from fastapi import FastAPI
+import secrets
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from app.routers import ingredients, inventory, auth
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from app.core.config import settings
+from app.routers import auth, ingredients, inventory
+
+_basic = HTTPBasic()
+
+
+def _verify_docs(credentials: HTTPBasicCredentials = Depends(_basic)):
+    ok_user = secrets.compare_digest(
+        credentials.username.encode(), settings.docs_username.encode()
+    )
+    ok_pass = secrets.compare_digest(
+        credentials.password.encode(), settings.docs_password.encode()
+    )
+    if not (ok_user and ok_pass):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
 
 app = FastAPI(
     title="냉장고 재고 관리 API",
@@ -20,6 +42,8 @@ app = FastAPI(
         {"name": "ingredients", "description": "식재료 마스터 데이터 검색 및 단건 조회"},
         {"name": "inventory", "description": "냉장고 재고 등록·조회·수정·삭제 (인증 필요)"},
     ],
+    docs_url=None,
+    redoc_url=None,
 )
 
 app.include_router(auth.router, prefix="/api/v1")
@@ -30,6 +54,16 @@ app.include_router(inventory.router, prefix="/api/v1")
 @app.get("/health", tags=["health"], summary="헬스 체크", include_in_schema=False)
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/docs", include_in_schema=False)
+async def swagger_ui(_: None = Depends(_verify_docs)):
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_ui(_: None = Depends(_verify_docs)):
+    return get_redoc_html(openapi_url="/openapi.json", title=app.title)
 
 
 def _custom_openapi():
