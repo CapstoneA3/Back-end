@@ -29,6 +29,8 @@
 
 ### 1. 의존성 설치
 
+Python 3.11 이상이 필요하다.
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -52,6 +54,8 @@ REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
 | `REDIS_URL` | N | Redis 연결 URL (기본값: `redis://localhost:6379`) |
 
 ### 3. 서버 실행
+
+Redis가 로컬에서 실행 중이어야 한다 (`redis-server` 또는 Docker: `docker run -p 6379:6379 redis`).
 
 ```bash
 uvicorn app.main:app --reload
