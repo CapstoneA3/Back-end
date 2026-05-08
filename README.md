@@ -323,7 +323,9 @@ GET /api/v1/ingredients/42
 
 ### POST `/inventory` — 재고 등록 (F-01)
 
-냉장고에 식재료를 등록한다. DB 저장과 동시에 Redis BitSet의 해당 `bit_id`를 1로 갱신한다.
+냉장고에 식재료를 등록한다. DB에 저장된다.
+
+> **예정:** 레시피 추천(F-03) 구현 시 Redis BitSet의 해당 `bit_id`를 1로 갱신하는 로직이 추가된다.
 
 - `expire_date` 생략 시 `default_shelf_days` 기준으로 자동 계산 (오늘 + default_shelf_days)
 - `unit` 생략 시 기본값 `"개"` 적용
@@ -540,7 +542,9 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ### DELETE `/inventory/{id}` — 재고 삭제 (F-05)
 
-재고 항목을 삭제한다. 해당 재료의 잔여 재고가 0이 되면 Redis BitSet의 `bit_id`를 0으로 전환한다.
+재고 항목을 삭제한다.
+
+> **예정:** 레시피 추천(F-03) 구현 시 잔여 재고가 0이 되면 Redis BitSet의 `bit_id`를 0으로 전환하는 로직이 추가된다.
 
 #### 경로 파라미터
 
@@ -644,13 +648,15 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 각 식재료는 `ingredient_master.bit_id` (0~426)를 인덱스로 Redis에 비트 배열로 캐싱된다. 보유하면 1, 미보유면 0.
 
+> **현재 상태:** BitSet 캐시는 F-03(레시피 추천) 구현 시 활성화 예정. 현재 inventory 엔드포인트는 DB만 사용한다.
+
 ```
 예) bit_id=0 (쌀) 보유, bit_id=2 (계란) 보유, bit_id=5 (우유) 미보유
 → ...001 0101  (이진수)
 ```
 
 - Redis 키: `user:{user_id}:bitset`
-- 갱신 시점: 재료 추가 / 재료 삭제 / 요리 완료
+- 갱신 예정 시점: 재료 추가 / 재료 삭제 / 요리 완료
 
 ---
 
