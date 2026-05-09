@@ -4,7 +4,7 @@ from app.core.database import Base
 
 
 class UserInventory(Base):
-    __tablename__ = "user_inventory"
+    __tablename__ = "user_ingredient"
 
     id = Column(BigInteger, primary_key=True)
     user_id = Column(String, nullable=False)
