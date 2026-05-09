@@ -11,7 +11,7 @@ class UserInventory(Base):
     ingredient_master_id = Column(BigInteger, ForeignKey("ingredient_master.id"), nullable=False)
     quantity = Column(Numeric, nullable=False)
     unit = Column(String(50))
-    expire_date = Column(Date, nullable=False)
+    expire_date = Column("expiry_date", Date, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     ingredient = relationship("IngredientMaster", lazy="raise")
