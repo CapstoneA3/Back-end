@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Optional, Literal
 from app.schemas.ingredient import IngredientMasterRead
@@ -68,7 +68,7 @@ class InventoryRead(BaseModel):
     quantity: Decimal = Field(description="현재 수량")
     unit: Optional[str] = Field(description="단위")
     expire_date: date = Field(description="유통기한")
-    created_at: datetime = Field(description="등록 일시")
+    created_at: Optional[date] = Field(default=None, description="등록 일시")
     ingredient: IngredientMasterRead = Field(description="연결된 식재료 마스터 정보")
     traffic_light: Literal["red", "yellow", "green"] = Field(
         default="green",
