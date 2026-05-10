@@ -12,6 +12,6 @@ class UserInventory(Base):
     quantity = Column(Numeric, nullable=False)
     unit = Column(String(50))
     expire_date = Column("expiry_date", Date, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column("registered_at",DateTime(timezone=True), server_default=func.now())
 
     ingredient = relationship("IngredientMaster", lazy="raise")
