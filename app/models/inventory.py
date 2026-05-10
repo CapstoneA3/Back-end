@@ -1,4 +1,5 @@
 from sqlalchemy import Column, BigInteger, String, Numeric, Date, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -7,7 +8,7 @@ class UserInventory(Base):
     __tablename__ = "user_ingredient"
 
     id = Column(BigInteger, primary_key=True)
-    user_id = Column(String, nullable=False)
+    user_id = Column(UUID(as_uuid=False), nullable=False)
     ingredient_master_id = Column(BigInteger, ForeignKey("ingredient_master.id"), nullable=False)
     quantity = Column(Numeric, nullable=False)
     unit = Column(String(50))
