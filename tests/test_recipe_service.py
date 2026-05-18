@@ -77,3 +77,62 @@ def test_recipe_detail_read_schema():
         ingredients=[], steps=[],
     )
     assert detail.name == "계란볶음밥"
+
+
+from datetime import date, timedelta
+from unittest.mock import MagicMock
+from app.services.recipe_service import _calc_score, _filter_by_bitset, _score_recipe
+
+
+def test_calc_score_normal():
+    exp = date.today() + timedelta(days=1)
+    score = _calc_score(3.0, 200.0, exp)
+    assert score == 3.0 * 200.0 / (1**2 + 1)   # 300.0
+
+
+def test_calc_score_clips_to_1_when_expired():
+    exp = date.today() - timedelta(days=3)
+    score = _calc_score(1.0, 100.0, exp)
+    assert score == 1.0 * 100.0 / (1**2 + 1)   # 50.0  (days_left clamped to 1)
+
+
+def test_filter_by_bitset_exact_match():
+    user_bitset = (1 << 0) | (1 << 2)
+    recipe_mask = (1 << 0) | (1 << 2)
+    assert _filter_by_bitset(user_bitset, [recipe_mask]) == [True]
+
+
+def test_filter_by_bitset_missing_ingredient():
+    user_bitset = (1 << 0)
+    recipe_mask = (1 << 0) | (1 << 2)
+    assert _filter_by_bitset(user_bitset, [recipe_mask]) == [False]
+
+
+def test_filter_by_bitset_skips_none_mask():
+    assert _filter_by_bitset((1 << 0), [None]) == [False]
+
+
+def test_filter_by_bitset_skips_zero_mask():
+    assert _filter_by_bitset((1 << 0), [0]) == [False]
+
+
+def test_score_recipe_sums_ingredient_scores():
+    today = date.today()
+    inv_lookup = {
+        5:  [(100.0, today + timedelta(days=5), 1.0)],
+        10: [(50.0,  today + timedelta(days=2), 2.0)],
+    }
+    ri_5 = MagicMock()
+    ri_5.ingredient_master_id = 5
+    ri_10 = MagicMock()
+    ri_10.ingredient_master_id = 10
+
+    score = _score_recipe([ri_5, ri_10], inv_lookup)
+    expected = 1.0 * 100.0 / (5**2 + 1) + 2.0 * 50.0 / (2**2 + 1)
+    assert abs(score - expected) < 1e-9
+
+
+def test_score_recipe_ignores_missing_inv():
+    ri = MagicMock()
+    ri.ingredient_master_id = 5
+    assert _score_recipe([ri], {}) == 0.0
