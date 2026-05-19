@@ -18,8 +18,11 @@ def test_settings_has_docs_credentials():
     assert s.docs_password == "secret"
 
 
-def test_settings_docs_credentials_have_defaults():
+def test_settings_docs_credentials_have_defaults(monkeypatch):
+    monkeypatch.delenv("DOCS_USERNAME", raising=False)
+    monkeypatch.delenv("DOCS_PASSWORD", raising=False)
     s = Settings(
+        _env_file=None,
         database_url="postgresql+asyncpg://u:p@localhost/db",
         supabase_url="https://x.supabase.co",
         supabase_anon_key="anon-key",
