@@ -12,8 +12,11 @@ class _BitToInt(TypeDecorator):
         if value is None:
             return None
         if type(value).__name__ == "BitString":
-            # asyncpg BitString.as_string() → '10000...' 형태, '1'의 위치가 bit_id
-            return value.as_string().index("1")
+            # as_string()은 4비트마다 공백 포함 → 공백 제거 필수
+            # recipe_bit와 동일한 LSB-0 기준으로 변환: 426 - left_pos
+            bit_str = value.as_string().replace(" ", "")
+            left_pos = bit_str.index("1")
+            return len(bit_str) - 1 - left_pos
         return int(value)
 
 

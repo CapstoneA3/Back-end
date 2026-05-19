@@ -29,6 +29,13 @@ def _verify_docs(credentials: HTTPBasicCredentials = Depends(_basic)):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+    logger = logging.getLogger("uvicorn")
+    logger.info("=== 등록된 라우트 목록 ===")
+    for route in app.routes:
+        if hasattr(route, "path") and hasattr(route, "methods"):
+            logger.info(f"  {route.methods} {route.path}")
+    logger.info("=========================")
     yield
     await close_redis()
 
@@ -56,6 +63,14 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def _debug_requests(request, call_next):
+    import logging
+    logging.getLogger("uvicorn").info(f">>> INCOMING: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logging.getLogger("uvicorn").info(f">>> RESPONSE: {response.status_code}")
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,6 +102,8 @@ async def redoc_ui(_: None = Depends(_verify_docs)):
 
 
 def _custom_openapi():
+    import logging
+    logging.getLogger("uvicorn").info(f"_custom_openapi called, cached={bool(app.openapi_schema)}, routes={len(app.routes)}")
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(
