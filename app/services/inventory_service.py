@@ -1,20 +1,16 @@
 from datetime import date, timedelta
-from decimal import Decimal
 from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-import redis.asyncio as aioredis
 from fastapi import HTTPException
 from app.models.ingredient import IngredientMaster
 from app.models.inventory import UserInventory
-from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard
-from app.services.bitset_service import set_bit, clear_bit
+from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard, InventoryUpdate
 
 
 async def register_ingredient(
     db: AsyncSession,
-    redis: aioredis.Redis,
     user_id: str,
     data: InventoryCreate,
 ) -> UserInventory:
@@ -36,12 +32,11 @@ async def register_ingredient(
         unit=unit,
         expire_date=expire_date,
     )
-    item.ingredient = ingredient  # relationship 미리 세팅 (lazy="raise" 우회)
+    item.ingredient = ingredient
     db.add(item)
     await db.commit()
     await db.refresh(item)
-
-    await set_bit(redis, user_id, ingredient.bit_id)
+    item.ingredient = ingredient  # refresh 후 관계 재할당 (lazy="raise" 우회)
     return item
 
 
@@ -100,9 +95,8 @@ async def get_dashboard(
     return InventoryDashboard(items=reads, total=len(reads))
 
 
-async def delete_ingredient(
+async def delete_inventory_item(
     db: AsyncSession,
-    redis: aioredis.Redis,
     user_id: str,
     inventory_id: int,
 ) -> None:
@@ -112,19 +106,34 @@ async def delete_ingredient(
     if item.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    ingredient_master_id = item.ingredient_master_id
     await db.delete(item)
     await db.commit()
 
-    result = await db.execute(
-        select(func.count()).select_from(UserInventory).where(
-            UserInventory.user_id == user_id,
-            UserInventory.ingredient_master_id == ingredient_master_id,
-        )
-    )
-    remaining = result.scalar_one()
 
-    if remaining == 0:
-        ingredient = await db.get(IngredientMaster, ingredient_master_id)
-        if ingredient:
-            await clear_bit(redis, user_id, ingredient.bit_id)
+async def update_inventory_item(
+    db: AsyncSession,
+    user_id: str,
+    inventory_id: int,
+    data: InventoryUpdate,
+) -> UserInventory:
+    item = await db.get(UserInventory, inventory_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    if item.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if data.quantity is not None:
+        if data.quantity == 0:
+            await db.delete(item)
+            await db.commit()
+            return item
+        else:
+            item.quantity = data.quantity
+
+    if data.unit is not None:
+        item.unit = data.unit
+    if data.expire_date is not None:
+        item.expire_date = data.expire_date
+
+    await db.commit()
+    return item

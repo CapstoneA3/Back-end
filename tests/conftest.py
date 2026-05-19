@@ -47,10 +47,14 @@ async def client(mock_db, mock_redis):
     async def override_get_db():
         yield mock_db
 
+    async def override_get_current_user_id():
+        return "user1"
+
     async def override_get_redis():
         return mock_redis
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user_id] = override_get_current_user_id
     app.dependency_overrides[get_redis] = override_get_redis
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:

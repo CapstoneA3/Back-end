@@ -17,17 +17,18 @@
 
 ## 인증
 
-현재 임시 인증 방식. 실제 인증(JWT / Supabase Auth) 도입 시 이 섹션만 교체 예정.
+Supabase Auth 기반 JWT Bearer 토큰 방식.  
+`POST /api/v1/auth/signup` 또는 `POST /api/v1/auth/login`으로 발급받은 `access_token`을 사용합니다.
 
 | 헤더 | 필수 여부 | 설명 |
 |------|-----------|------|
-| `X-User-ID` | 조건부 필수 | `/inventory` 엔드포인트에만 필요. 사용자 식별자 문자열. |
+| `Authorization` | 조건부 필수 | `/inventory`, `/auth/me` 엔드포인트에 필요. 형식: `Bearer <access_token>` |
 
-**에러 (헤더 누락 또는 빈 값)**
+**에러 (헤더 누락)**
 ```json
 HTTP 401
 {
-  "detail": "X-User-ID header is required"
+  "detail": "Authorization header required"
 }
 ```
 

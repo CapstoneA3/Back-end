@@ -1,4 +1,5 @@
 .env
+.env.local
 __pycache__/
 *.pyc
 *.pyo
@@ -10,3 +11,4 @@ dist/
 build/
 .ruff_cache/
 .worktrees/
+docs/superpowers/
