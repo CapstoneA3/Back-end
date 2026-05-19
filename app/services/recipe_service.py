@@ -125,3 +125,31 @@ async def get_recommended_recipes(
     ]
 
     return RecipeRecommendList(items=items, total=len(items))
+
+
+async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> RecipeDetailRead:
+    result = await db.execute(select(Recipe).where(Recipe.id == recipe_id))
+    recipe = result.scalar_one_or_none()
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    ri_result = await db.execute(
+        select(RecipeIngredient).where(RecipeIngredient.recipe_id == recipe_id)
+    )
+    ingredients = ri_result.scalars().all()
+
+    rs_result = await db.execute(
+        select(RecipeStep)
+        .where(RecipeStep.recipe_id == recipe_id)
+        .order_by(RecipeStep.step_order)
+    )
+    steps = rs_result.scalars().all()
+
+    return RecipeDetailRead(
+        id=recipe.id,
+        name=recipe.name,
+        cook_time_min=recipe.cook_time_min,
+        servings=recipe.servings,
+        ingredients=[RecipeIngredientRead.model_validate(ri) for ri in ingredients],
+        steps=[RecipeStepRead.model_validate(rs) for rs in steps],
+    )

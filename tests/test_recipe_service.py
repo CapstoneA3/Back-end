@@ -187,3 +187,37 @@ async def test_get_recommended_recipes_sorted_descending(db):
 
     scores = [item.score for item in result.items]
     assert scores == sorted(scores, reverse=True)
+
+
+from sqlalchemy import select as sa_select
+from app.models.recipe import Recipe as RecipeModel
+from app.services.recipe_service import get_recipe_detail
+
+
+@pytest.mark.asyncio
+async def test_get_recipe_detail_with_real_db(db):
+    """test DB의 첫 번째 레시피로 상세 조회 검증."""
+    row = await db.execute(sa_select(RecipeModel).limit(1))
+    recipe = row.scalar_one_or_none()
+
+    if recipe is None:
+        pytest.skip("test DB에 레시피 데이터 없음")
+
+    detail = await get_recipe_detail(db, recipe.id)
+
+    assert detail.id == recipe.id
+    assert detail.name == recipe.name
+    assert isinstance(detail.ingredients, list)
+    assert isinstance(detail.steps, list)
+    for step in detail.steps:
+        assert step.step_order >= 1
+        assert isinstance(step.description, str)
+
+
+@pytest.mark.asyncio
+async def test_get_recipe_detail_not_found(db):
+    """존재하지 않는 recipe_id → 404 HTTPException."""
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        await get_recipe_detail(db, 999_999_999)
+    assert exc.value.status_code == 404
