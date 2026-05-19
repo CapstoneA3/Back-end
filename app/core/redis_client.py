@@ -9,3 +9,10 @@ async def get_redis() -> aioredis.Redis:
     if _redis is None:
         _redis = aioredis.from_url(settings.redis_url, decode_responses=False)
     return _redis
+
+
+async def close_redis() -> None:
+    global _redis
+    if _redis is not None:
+        await _redis.aclose()
+        _redis = None
