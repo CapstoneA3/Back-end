@@ -112,6 +112,35 @@ async def test_get_inventory_sorted_by_expire_date(client, mock_db, mock_redis):
     assert resp.status_code == 200
 
 
+async def test_get_inventory_empty(client, mock_db, mock_redis):
+    """재고 0개 신규 유저 → 200, items=[], total=0 (NPE 없음 검증)."""
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=list_result)
+
+    resp = await client.get("/api/v1/inventory", headers={"X-User-ID": "new-user"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
+
+
+async def test_get_inventory_empty_sorted_by_expire_date(client, mock_db, mock_redis):
+    """재고 0개 + sort=expire_date → 200, items=[], total=0."""
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=list_result)
+
+    resp = await client.get(
+        "/api/v1/inventory?sort=expire_date", headers={"X-User-ID": "new-user"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
+
+
 async def test_get_inventory_requires_user_id(client):
     resp = await client.get("/api/v1/inventory")
     assert resp.status_code == 422

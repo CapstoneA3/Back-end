@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 import redis.asyncio as aioredis
 from fastapi import HTTPException
 from app.models.ingredient import IngredientMaster
@@ -65,7 +66,9 @@ async def get_dashboard(
     sort: str = "recommended",
 ) -> InventoryDashboard:
     result = await db.execute(
-        select(UserInventory).where(UserInventory.user_id == user_id)
+        select(UserInventory)
+        .where(UserInventory.user_id == user_id)
+        .options(selectinload(UserInventory.ingredient))
     )
     items = result.scalars().all()
 
