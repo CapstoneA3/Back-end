@@ -11,7 +11,8 @@ class _BitMaskToInt(TypeDecorator):
         if value is None:
             return None
         if type(value).__name__ == "BitString":
-            return int(value.as_string(), 2)
+            # asyncpg BitString may include spaces; strip before parsing
+            return int(value.as_string().replace(" ", ""), 2)
         return value
 
 

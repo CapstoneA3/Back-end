@@ -136,3 +136,54 @@ def test_score_recipe_ignores_missing_inv():
     ri = MagicMock()
     ri.ingredient_master_id = 5
     assert _score_recipe([ri], {}) == 0.0
+
+
+import pytest
+from unittest.mock import AsyncMock
+from app.services.recipe_service import get_recommended_recipes
+from app.schemas.recipe import RecipeRecommendList
+
+TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
+
+
+@pytest.mark.asyncio
+async def test_get_recommended_recipes_empty_bitset(db):
+    """BitSet = 0 이면 어떤 레시피도 매칭되지 않아 빈 목록 반환."""
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=(0).to_bytes(54, "big"))
+
+    result = await get_recommended_recipes(db, mock_redis, TEST_USER_ID, limit=20)
+
+    assert isinstance(result, RecipeRecommendList)
+    assert result.total == 0
+    assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_get_recommended_recipes_all_bits_returns_list(db):
+    """모든 비트 세팅 → DB의 모든 레시피가 매칭 후보. 구조 검증."""
+    all_bits = (1 << 427) - 1
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=all_bits.to_bytes(54, "big"))
+
+    result = await get_recommended_recipes(db, mock_redis, TEST_USER_ID, limit=20)
+
+    assert isinstance(result, RecipeRecommendList)
+    assert isinstance(result.total, int)
+    assert result.total >= 0
+    if result.total > 0:
+        assert result.items[0].rank == 1
+        assert all(item.rank == i + 1 for i, item in enumerate(result.items))
+
+
+@pytest.mark.asyncio
+async def test_get_recommended_recipes_sorted_descending(db):
+    """결과 스코어가 내림차순으로 정렬되어 있어야 한다."""
+    all_bits = (1 << 427) - 1
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(return_value=all_bits.to_bytes(54, "big"))
+
+    result = await get_recommended_recipes(db, mock_redis, TEST_USER_ID, limit=20)
+
+    scores = [item.score for item in result.items]
+    assert scores == sorted(scores, reverse=True)
