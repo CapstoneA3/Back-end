@@ -52,6 +52,8 @@ REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
 | `SUPABASE_URL` | Y | Supabase 프로젝트 URL |
 | `SUPABASE_ANON_KEY` | Y | Supabase anon (public) 키 |
 | `REDIS_URL` | N | Redis 연결 URL (기본값: `redis://localhost:6379`) |
+| `DOCS_USERNAME` | Y | Swagger UI 접근용 Basic Auth 아이디 |
+| `DOCS_PASSWORD` | Y | Swagger UI 접근용 Basic Auth 비밀번호 |
 
 ### 3. 서버 실행
 
@@ -323,9 +325,7 @@ GET /api/v1/ingredients/42
 
 ### POST `/inventory` — 재고 등록 (F-01)
 
-냉장고에 식재료를 등록한다. DB에 저장된다.
-
-> **예정:** 레시피 추천(F-03) 구현 시 Redis BitSet의 해당 `bit_id`를 1로 갱신하는 로직이 추가된다.
+냉장고에 식재료를 등록한다. DB에 저장되며 Redis BitSet의 해당 비트가 즉시 갱신된다.
 
 - `expire_date` 생략 시 `default_shelf_days` 기준으로 자동 계산 (오늘 + default_shelf_days)
 - `unit` 생략 시 기본값 `"개"` 적용
@@ -579,27 +579,141 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ---
 
-## 레시피 API — 예정 (Recipes)
+## 레시피 API (Recipes)
 
-> 아직 구현되지 않은 엔드포인트입니다. 명세만 기술합니다.
-
-| 메서드 | 경로 | 설명 | 기능 |
-|--------|------|------|------|
-| GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) |
-| GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | — |
-| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) |
+| 메서드 | 경로 | 설명 | 기능 | 상태 |
+|--------|------|------|------|------|
+| GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) | ✅ 완료 |
+| GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | 재료·조리 순서 포함 | ✅ 완료 |
+| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) | 🔲 예정 |
 
 ### GET `/recipes` — 추천 레시피 목록 (F-03)
 
-사용자 보유 재료 BitSet과 각 레시피의 `requirement_mask`를 AND 연산하여 조리 가능 레시피를 필터링하고, α-스코어 내림차순으로 정렬해 반환한다.
+사용자 냉장고 재료의 Redis BitSet과 각 레시피의 `recipe_bit`을 AND 연산하여 조리 가능 레시피를 필터링하고, α-스코어 내림차순으로 정렬해 반환한다.
 
 **Bearer 토큰 필수**
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 기본값 | 제약 | 설명 |
+|----------|------|--------|------|------|
+| `limit` | integer | `20` | `1 ≤ limit ≤ 100` | 반환할 레시피 최대 수 |
+
+#### 요청 예시
+
+```http
+GET /api/v1/recipes?limit=10
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 2,
+    "items": [
+      {
+        "id": 7,
+        "name": "계란볶음밥",
+        "cook_time_min": 15,
+        "servings": 1,
+        "score": 8.5,
+        "rank": 1,
+        "ingredients": [
+          {
+            "id": 21,
+            "recipe_id": 7,
+            "ingredient_master_id": 42,
+            "quantity": "2",
+            "unit": "개",
+            "ingredient_name": "계란"
+          }
+        ]
+      }
+    ]
+  },
+  "message": ""
+}
+```
+
+재고가 없거나 조리 가능 레시피가 없으면 `data: { "total": 0, "items": [] }` 반환.
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 401 | Authorization 헤더 누락 또는 토큰 만료·무효 |
+| 422 | `limit` 파라미터 범위 초과 |
+
+---
+
+### GET `/recipes/{id}` — 레시피 상세 조회
+
+레시피 ID로 상세 정보, 필요 재료 목록, 조리 순서를 반환한다.
+
+**인증 불필요**
+
+#### 경로 파라미터
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `id` | integer | 레시피 PK |
+
+#### 요청 예시
+
+```http
+GET /api/v1/recipes/7
+```
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 7,
+    "name": "계란볶음밥",
+    "cook_time_min": 15,
+    "servings": 1,
+    "ingredients": [
+      {
+        "id": 21,
+        "recipe_id": 7,
+        "ingredient_master_id": 42,
+        "quantity": "2",
+        "unit": "개",
+        "ingredient_name": "계란"
+      }
+    ],
+    "steps": [
+      {
+        "id": 101,
+        "recipe_id": 7,
+        "step_order": 1,
+        "description": "팬을 달군 후 기름을 두른다.",
+        "tip": null
+      }
+    ]
+  },
+  "message": ""
+}
+```
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 404 | 존재하지 않는 recipe_id |
+
+---
 
 ### POST `/recipes/{id}/complete` — 요리 완료 처리 (F-04)
 
 레시피 재료를 FIFO(expire_date 오름차순) 방식으로 재고에서 차감한다. 소진된 재료는 BitSet에서 해당 비트를 0으로 전환한다.
 
-**Bearer 토큰 필수**
+**Bearer 토큰 필수 · 미구현(예정)**
 
 ---
 
@@ -662,13 +776,15 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ### 2. 비트마스킹 레시피 매칭
 
-각 레시피는 필요 재료의 `bit_id` 집합으로 구성된 `requirement_mask`를 보유한다. AND 연산으로 조리 가능 여부를 O(1)에 판단한다.
+각 레시피는 필요 재료의 `bit_id` 집합으로 구성된 `recipe_bit`을 보유한다. AND 연산으로 조리 가능 여부를 O(1)에 판단한다.
+
+> **네이밍 매핑:** `recipe_bit`은 DB 컬럼명(`recipe.recipe_bit`)이자 코드에서 직접 참조하는 이름(`r.recipe_bit`, `recipe_service.py`). 알고리즘 문서에서 종종 "requirement_mask"로 불리는 개념과 동일하다.
 
 ```python
 # 조리 가능 조건
-(user_bitset & recipe_mask) == recipe_mask
+(user_bitset & recipe_bit) == recipe_bit
 
-# requirement_mask 생성
+# recipe_bit 생성
 mask = 0
 for ingredient in recipe.ingredients:
     mask |= (1 << ingredient.bit_id)
