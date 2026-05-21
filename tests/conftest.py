@@ -28,7 +28,10 @@ def mock_db():
 
 @pytest.fixture
 async def db():
-    """레시피 테스트용 실제 test DB 세션."""
+    """레시피 테스트용 실제 test DB 세션 (CI 환경에서는 건너뜀)."""
+    import os
+    if os.getenv("CI"):
+        pytest.skip("CI 환경에서는 실제 DB 연결 테스트를 건너뜁니다.")
     engine = create_async_engine(settings.database_url, echo=False, pool_pre_ping=True)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:

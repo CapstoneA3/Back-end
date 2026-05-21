@@ -18,18 +18,18 @@ def test_settings_has_docs_credentials():
     assert s.docs_password == "secret"
 
 
-def test_settings_docs_credentials_are_required(monkeypatch):
-    """docs 자격증명은 기본값 없음 — .env 또는 환경변수로 반드시 제공해야 한다."""
-    from pydantic import ValidationError
+def test_settings_docs_credentials_have_defaults(monkeypatch):
+    """docs 자격증명은 기본값을 가지며 환경변수로 덮어쓸 수 있다."""
     monkeypatch.delenv("DOCS_USERNAME", raising=False)
     monkeypatch.delenv("DOCS_PASSWORD", raising=False)
-    with pytest.raises(ValidationError):
-        Settings(
-            _env_file=None,
-            database_url="postgresql+asyncpg://u:p@localhost/db",
-            supabase_url="https://x.supabase.co",
-            supabase_anon_key="anon-key",
-        )
+    s = Settings(
+        _env_file=None,
+        database_url="postgresql+asyncpg://u:p@localhost/db",
+        supabase_url="https://x.supabase.co",
+        supabase_anon_key="anon-key",
+    )
+    assert s.docs_username == "admin"
+    assert s.docs_password == "changeme"
 
 
 def test_settings_docs_credentials_from_env_vars(monkeypatch):
