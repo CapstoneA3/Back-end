@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Numeric, Date, DateTime, ForeignKey, func
+from sqlalchemy import Column, BigInteger, String, Numeric, Date, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -13,6 +13,6 @@ class UserInventory(Base):
     quantity = Column(Numeric, nullable=False)
     unit = Column(String(50))
     expire_date = Column("expiry_date", Date, nullable=False)
-    created_at = Column("registered_at", Date, default=func.now(), nullable=False)
+    created_at = Column("registered_at", Date, nullable=True)
 
     ingredient = relationship("IngredientMaster", lazy="raise")
