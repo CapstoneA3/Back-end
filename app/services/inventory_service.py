@@ -40,7 +40,7 @@ async def register_ingredient(
     await db.commit()
     await db.refresh(item)
     item.ingredient = ingredient  # refresh 후 관계 재할당 (lazy="raise" 우회)
-    await set_bit(redis, user_id, ingredient.bit_id)
+    await set_bit(redis, user_id, ingredient.bit_id, db)
     return item
 
 
@@ -114,7 +114,7 @@ async def _clear_bit_if_last(
     if remaining.scalars().first() is None:
         ingredient = await db.get(IngredientMaster, ingredient_master_id)
         if ingredient is not None:
-            await clear_bit(redis, user_id, ingredient.bit_id)
+            await clear_bit(redis, user_id, ingredient.bit_id, db)
 
 
 async def delete_inventory_item(

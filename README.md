@@ -37,13 +37,10 @@ pip install -r requirements.txt
 
 ### 2. 환경변수 설정
 
-프로젝트 루트에 `.env.local` 파일을 생성한다.
+프로젝트 루트에 `.env.local` 파일을 생성한다. `.env.example`을 복사해서 사용한다.
 
-```env
-DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>/<db>
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<anon-key>
-REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
+```bash
+cp .env.example .env.local
 ```
 
 | 변수 | 필수 | 설명 |
@@ -51,13 +48,37 @@ REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
 | `DATABASE_URL` | Y | PostgreSQL 비동기 연결 문자열 (`postgresql+asyncpg://`) |
 | `SUPABASE_URL` | Y | Supabase 프로젝트 URL |
 | `SUPABASE_ANON_KEY` | Y | Supabase anon (public) 키 |
-| `REDIS_URL` | N | Redis 연결 URL (기본값: `redis://localhost:6379`) |
+| `REDIS_URL` | Y | Redis 연결 URL (아래 환경별 설정 참고) |
 | `DOCS_USERNAME` | Y | Swagger UI 접근용 Basic Auth 아이디 |
 | `DOCS_PASSWORD` | Y | Swagger UI 접근용 Basic Auth 비밀번호 |
 
+#### Redis 환경별 설정
+
+**배포 환경 (Upstash)**
+
+[Upstash Console](https://console.upstash.com)에서 Redis 데이터베이스 생성 후 `REST URL` 또는 `Redis URL`을 복사한다.
+
+```env
+REDIS_URL=rediss://default:<password>@<host>.upstash.io:6379
+```
+
+`rediss://` 스키마를 사용하면 TLS가 자동 적용된다.
+
+**로컬 개발**
+
+Docker로 Redis를 실행한다.
+
+```bash
+docker run -d -p 6379:6379 redis:7-alpine
+```
+
+```env
+REDIS_URL=redis://localhost:6379
+```
+
 ### 3. 서버 실행
 
-Redis가 로컬에서 실행 중이어야 한다 (`redis-server` 또는 Docker: `docker run -p 6379:6379 redis`).
+배포 환경에서는 Upstash Redis를 사용하므로 별도 Redis 설치가 필요 없다. 로컬 개발 시에만 위 Docker 명령으로 Redis를 먼저 실행한다.
 
 ```bash
 uvicorn app.main:app --reload
@@ -544,8 +565,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 재고 항목을 삭제한다.
 
-> **예정:** 레시피 추천(F-03) 구현 시 잔여 재고가 0이 되면 Redis BitSet의 `bit_id`를 0으로 전환하는 로직이 추가된다.
-
 #### 경로 파라미터
 
 | 파라미터 | 타입 | 설명 |
@@ -762,8 +781,6 @@ GET /api/v1/recipes/7
 
 각 식재료는 `ingredient_master.bit_id` (0~426)를 인덱스로 Redis에 비트 배열로 캐싱된다. 보유하면 1, 미보유면 0.
 
-> **현재 상태:** BitSet 캐시는 F-03(레시피 추천) 구현 시 활성화 예정. 현재 inventory 엔드포인트는 DB만 사용한다.
-
 ```
 예) bit_id=0 (쌀) 보유, bit_id=2 (계란) 보유, bit_id=5 (우유) 미보유
 → ...001 0101  (이진수)
@@ -843,7 +860,7 @@ score_recipe = Σ score_ingredient  (레시피에 포함된 보유 재료 전체
 | — | 식재료 마스터 조회 | `GET /ingredients`, `GET /ingredients/{id}` | ✅ 완료 |
 | F-01 | 식재료 등록 | `POST /inventory` | ✅ 완료 |
 | F-02 | 재고 대시보드 (신호등 + α-스코어) | `GET /inventory` | ✅ 완료 |
-| F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | 🔲 예정 |
+| F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | ✅ 완료 |
 | F-04 | 요리 완료 처리 (FIFO 차감) | `POST /recipes/{id}/complete` | 🔲 예정 |
 | F-05 | 재고 수정·삭제 | `PATCH /inventory/{id}`, `DELETE /inventory/{id}` | ✅ 완료 |
 

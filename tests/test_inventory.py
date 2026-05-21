@@ -134,34 +134,37 @@ async def test_get_inventory_requires_user_id(client, mock_db):
 
 # delete_inventory_item service tests
 
-async def test_delete_inventory_item_success(mock_db):
+async def test_delete_inventory_item_success(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
 
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()  # 동일 재료 재고 잔존
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
-    await delete_inventory_item(mock_db, "user1", 10)
+    await delete_inventory_item(mock_db, mock_redis, "user1", 10)
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
 
 
-async def test_delete_inventory_not_found(mock_db):
+async def test_delete_inventory_not_found(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
     mock_db.get = AsyncMock(return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_inventory_item(mock_db, "user1", 9999)
+        await delete_inventory_item(mock_db, mock_redis, "user1", 9999)
     assert exc.value.status_code == 404
 
 
-async def test_delete_inventory_forbidden(mock_db):
+async def test_delete_inventory_forbidden(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
@@ -171,7 +174,7 @@ async def test_delete_inventory_forbidden(mock_db):
     mock_db.get = AsyncMock(return_value=item)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_inventory_item(mock_db, "other_user", 10)
+        await delete_inventory_item(mock_db, mock_redis, "other_user", 10)
     assert exc.value.status_code == 403
 
 
@@ -181,7 +184,10 @@ async def test_delete_inventory_endpoint_success(client, mock_db):
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
@@ -209,7 +215,7 @@ async def test_delete_inventory_endpoint_forbidden(client, mock_db):
 
 # update_inventory_item service tests
 
-async def test_update_inventory_item_quantity(mock_db):
+async def test_update_inventory_item_quantity(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -219,13 +225,13 @@ async def test_update_inventory_item_quantity(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
 
     assert item.quantity == Decimal("5")
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_unit_and_expire(mock_db):
+async def test_update_inventory_item_unit_and_expire(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -236,31 +242,34 @@ async def test_update_inventory_item_unit_and_expire(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(unit="g", expire_date=new_date))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(unit="g", expire_date=new_date))
 
     assert item.unit == "g"
     assert item.expire_date == new_date
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_zero_quantity_deletes(mock_db):
+async def test_update_inventory_item_zero_quantity_deletes(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_not_found(mock_db):
+async def test_update_inventory_item_not_found(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
     from fastapi import HTTPException
@@ -268,11 +277,11 @@ async def test_update_inventory_item_not_found(mock_db):
     mock_db.get = AsyncMock(return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await update_inventory_item(mock_db, "user1", 9999, InventoryUpdate(quantity=Decimal("2")))
+        await update_inventory_item(mock_db, mock_redis, "user1", 9999, InventoryUpdate(quantity=Decimal("2")))
     assert exc.value.status_code == 404
 
 
-async def test_update_inventory_item_forbidden(mock_db):
+async def test_update_inventory_item_forbidden(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
     from fastapi import HTTPException
@@ -283,11 +292,11 @@ async def test_update_inventory_item_forbidden(mock_db):
     mock_db.get = AsyncMock(return_value=item)
 
     with pytest.raises(HTTPException) as exc:
-        await update_inventory_item(mock_db, "other_user", 10, InventoryUpdate(quantity=Decimal("2")))
+        await update_inventory_item(mock_db, mock_redis, "other_user", 10, InventoryUpdate(quantity=Decimal("2")))
     assert exc.value.status_code == 403
 
 
-async def test_update_inventory_item_no_fields_is_noop(mock_db):
+async def test_update_inventory_item_no_fields_is_noop(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -298,7 +307,7 @@ async def test_update_inventory_item_no_fields_is_noop(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate())
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate())
 
     assert item.quantity == original_qty
     mock_db.commit.assert_called_once()

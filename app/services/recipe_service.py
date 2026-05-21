@@ -17,7 +17,7 @@ from app.schemas.recipe import (
     RecipeRecommendList,
     RecipeDetailRead,
 )
-from app.services.bitset_service import get_user_bitset
+from app.services.bitset_service import rebuild_user_bitset
 
 
 def _calc_score(risk_factor: float, quantity: float, expire_date: date) -> float:
@@ -58,7 +58,11 @@ async def get_recommended_recipes(
     user_id: str,
     limit: int = 20,
 ) -> RecipeRecommendList:
-    user_bitset = await get_user_bitset(redis, user_id)
+    raw = await redis.get(f"user:{user_id}:bitset")
+    user_bitset = (
+        int.from_bytes(raw, "big") if raw is not None
+        else await rebuild_user_bitset(db, redis, user_id)
+    )
 
     # 1. 전체 레시피 로드
     recipe_result = await db.execute(select(Recipe))
