@@ -17,6 +17,9 @@ router = APIRouter(prefix="/ocr", tags=["ocr"])
 _BEARER = {"security": [{"bearerAuth": []}]}
 _AUTH_401 = {401: {"description": "Authorization 헤더 없음 또는 토큰 만료·무효"}}
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
+
 
 @router.post(
     "/scan",
@@ -31,6 +34,7 @@ _AUTH_401 = {401: {"description": "Authorization 헤더 없음 또는 토큰 만
     responses={
         **_AUTH_401,
         400: {"description": "지원하지 않는 이미지 포맷"},
+        413: {"description": "이미지 파일이 너무 큽니다 (최대 10 MB)"},
         504: {"description": "CLOVA OCR API timeout"},
     },
     openapi_extra=_BEARER,
@@ -41,6 +45,10 @@ async def scan_receipt_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     image_bytes = await image.read()
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="이미지 파일이 너무 큽니다 (최대 10 MB)")
+    if image.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="지원하지 않는 이미지 형식")
     try:
         raw_items = await scan_receipt(image_bytes, image.filename or "receipt.jpg")
     except httpx.TimeoutException:
@@ -89,6 +97,11 @@ async def confirm_receipt_endpoint(
             errors.append(OcrConfirmError(
                 ingredient_master_id=item.ingredient_master_id,
                 reason=e.detail,
+            ))
+        except Exception:
+            errors.append(OcrConfirmError(
+                ingredient_master_id=item.ingredient_master_id,
+                reason="처리 중 오류가 발생했습니다.",
             ))
 
     return ApiResponse(
