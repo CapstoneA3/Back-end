@@ -2,6 +2,8 @@ import pytest
 from decimal import Decimal
 from unittest.mock import patch, AsyncMock
 
+from fastapi import HTTPException
+
 from app.schemas.cooking import CookResult, IngredientDeductionResult, InventoryDeduction
 
 
@@ -49,7 +51,6 @@ async def test_cook_recipe_endpoint_success(client):
 
 @pytest.mark.asyncio
 async def test_cook_recipe_endpoint_not_found(client):
-    from fastapi import HTTPException
     with patch(
         "app.routers.recipes.cook_recipe",
         AsyncMock(side_effect=HTTPException(status_code=404, detail="Recipe not found")),
@@ -60,6 +61,7 @@ async def test_cook_recipe_endpoint_not_found(client):
         )
 
     assert resp.status_code == 404
+    assert resp.json()["detail"] == "Recipe not found"
 
 
 @pytest.mark.asyncio
@@ -86,9 +88,8 @@ async def test_cook_recipe_endpoint_rejects_duplicate_ingredient(client):
                 {"ingredient_master_id": 5, "quantity": 50.0},
             ]},
         )
-
-    assert resp.status_code == 422
-    mock_cook.assert_not_called()
+        assert resp.status_code == 422
+        mock_cook.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -99,6 +100,5 @@ async def test_cook_recipe_endpoint_rejects_zero_quantity(client):
             "/api/v1/recipes/7/cook",
             json={"ingredients": [{"ingredient_master_id": 5, "quantity": 0}]},
         )
-
-    assert resp.status_code == 422
-    mock_cook.assert_not_called()
+        assert resp.status_code == 422
+        mock_cook.assert_not_called()
