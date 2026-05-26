@@ -18,27 +18,27 @@ from app.schemas.cooking import (
 
 def test_cook_request_valid():
     req = CookRequest(ingredients=[
-        IngredientUsage(ingredient_master_id=5, quantity=200.0),
+        IngredientUsage(ingredient_master_id=5, quantity=Decimal("200.0")),
     ])
-    assert req.ingredients[0].quantity == 200.0
+    assert req.ingredients[0].quantity == Decimal("200.0")
     assert req.ingredients[0].ingredient_master_id == 5
 
 
 def test_cook_request_rejects_zero_quantity():
     with pytest.raises(ValidationError):
-        CookRequest(ingredients=[IngredientUsage(ingredient_master_id=5, quantity=0.0)])
+        CookRequest(ingredients=[IngredientUsage(ingredient_master_id=5, quantity=Decimal("0.0"))])
 
 
 def test_cook_request_rejects_negative_quantity():
     with pytest.raises(ValidationError):
-        CookRequest(ingredients=[IngredientUsage(ingredient_master_id=5, quantity=-10.0)])
+        CookRequest(ingredients=[IngredientUsage(ingredient_master_id=5, quantity=Decimal("-10.0"))])
 
 
 def test_cook_request_rejects_duplicate_ingredient():
     with pytest.raises(ValidationError):
         CookRequest(ingredients=[
-            IngredientUsage(ingredient_master_id=5, quantity=100.0),
-            IngredientUsage(ingredient_master_id=5, quantity=50.0),
+            IngredientUsage(ingredient_master_id=5, quantity=Decimal("100.0")),
+            IngredientUsage(ingredient_master_id=5, quantity=Decimal("50.0")),
         ])
 
 
@@ -54,7 +54,7 @@ def test_cook_result_schema():
 
 
 def test_inventory_deduction_schema():
-    d = InventoryDeduction(inventory_id=10, deducted=150.0, deleted=True)
+    d = InventoryDeduction(inventory_id=10, deducted=Decimal("150.0"), deleted=True)
     assert d.deleted is True
 
 
@@ -62,9 +62,9 @@ def test_ingredient_deduction_result_schema():
     r = IngredientDeductionResult(
         ingredient_master_id=5,
         ingredient_name="닭가슴살",
-        requested=200.0,
-        deducted=200.0,
-        rows_affected=[InventoryDeduction(inventory_id=10, deducted=150.0, deleted=True)],
+        requested=Decimal("200.0"),
+        deducted=Decimal("200.0"),
+        rows_affected=[InventoryDeduction(inventory_id=10, deducted=Decimal("150.0"), deleted=True)],
     )
-    assert r.deducted == 200.0
+    assert r.deducted == Decimal("200.0")
     assert len(r.rows_affected) == 1

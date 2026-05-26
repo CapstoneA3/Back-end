@@ -1,9 +1,10 @@
+from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator
 
 
 class IngredientUsage(BaseModel):
     ingredient_master_id: int = Field(description="식재료 마스터 ID")
-    quantity: float = Field(gt=0, description="실제 사용량 (0 초과)")
+    quantity: Decimal = Field(gt=0, description="실제 사용량 (0 초과)")
 
 
 class CookRequest(BaseModel):
@@ -23,15 +24,15 @@ class CookRequest(BaseModel):
 
 class InventoryDeduction(BaseModel):
     inventory_id: int = Field(description="차감된 인벤토리 행 ID")
-    deducted: float = Field(description="실제 차감된 수량")
+    deducted: Decimal = Field(description="실제 차감된 수량")
     deleted: bool = Field(description="해당 행 삭제 여부 (수량 완전 소진)")
 
 
 class IngredientDeductionResult(BaseModel):
     ingredient_master_id: int = Field(description="식재료 마스터 ID")
     ingredient_name: str = Field(description="식재료명")
-    requested: float = Field(description="요청한 차감 수량")
-    deducted: float = Field(description="실제 차감된 총량 (재고 부족 시 < requested)")
+    requested: Decimal = Field(description="요청한 차감 수량")
+    deducted: Decimal = Field(description="실제 차감된 총량 (재고 부족 시 < requested)")
     rows_affected: list[InventoryDeduction] = Field(description="영향받은 인벤토리 행 목록")
 
 
