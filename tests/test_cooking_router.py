@@ -31,7 +31,7 @@ async def test_cook_recipe_endpoint_success(client):
     mock_result = _make_cook_result()
     with patch("app.routers.recipes.cook_recipe", AsyncMock(return_value=mock_result)):
         resp = await client.post(
-            "/api/v1/recipes/7/cook",
+            "/api/v1/recipes/7/complete",
             json={"ingredients": [{"ingredient_master_id": 5, "quantity": 200.0}]},
         )
 
@@ -56,7 +56,7 @@ async def test_cook_recipe_endpoint_not_found(client):
         AsyncMock(side_effect=HTTPException(status_code=404, detail="Recipe not found")),
     ):
         resp = await client.post(
-            "/api/v1/recipes/9999/cook",
+            "/api/v1/recipes/9999/complete",
             json={"ingredients": []},
         )
 
@@ -69,7 +69,7 @@ async def test_cook_recipe_endpoint_empty_ingredients(client):
     mock_result = CookResult(recipe_id=7, recipe_name="닭볶음탕", deductions=[])
     with patch("app.routers.recipes.cook_recipe", AsyncMock(return_value=mock_result)):
         resp = await client.post(
-            "/api/v1/recipes/7/cook",
+            "/api/v1/recipes/7/complete",
             json={"ingredients": []},
         )
 
@@ -82,7 +82,7 @@ async def test_cook_recipe_endpoint_rejects_duplicate_ingredient(client):
     """Pydantic 검증: 중복 ingredient_master_id → 422 Unprocessable Entity."""
     with patch("app.routers.recipes.cook_recipe", AsyncMock()) as mock_cook:
         resp = await client.post(
-            "/api/v1/recipes/7/cook",
+            "/api/v1/recipes/7/complete",
             json={"ingredients": [
                 {"ingredient_master_id": 5, "quantity": 100.0},
                 {"ingredient_master_id": 5, "quantity": 50.0},
@@ -97,7 +97,7 @@ async def test_cook_recipe_endpoint_rejects_zero_quantity(client):
     """Pydantic 검증: quantity=0 → 422."""
     with patch("app.routers.recipes.cook_recipe", AsyncMock()) as mock_cook:
         resp = await client.post(
-            "/api/v1/recipes/7/cook",
+            "/api/v1/recipes/7/complete",
             json={"ingredients": [{"ingredient_master_id": 5, "quantity": 0}]},
         )
         assert resp.status_code == 422

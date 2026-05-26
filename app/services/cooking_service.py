@@ -79,34 +79,34 @@ async def cook_recipe(
             reverse=True,
         )
 
-        remaining = float(usage.quantity)
-        total_deducted = 0.0
-        total_remaining = sum(float(r.quantity) for r in rows)
+        remaining: Decimal = usage.quantity
+        total_deducted: Decimal = Decimal("0")
+        total_remaining: Decimal = sum((r.quantity for r in rows), Decimal("0"))
         rows_affected: list[InventoryDeduction] = []
 
         for row in rows:
             if remaining <= 0:
                 break
-            row_qty = float(row.quantity)
+            row_qty: Decimal = row.quantity
             if remaining >= row_qty:
                 total_deducted += row_qty
                 total_remaining -= row_qty
                 remaining -= row_qty
                 rows_affected.append(
-                    InventoryDeduction(inventory_id=row.id, deducted=Decimal(str(round(row_qty, 10))), deleted=True)
+                    InventoryDeduction(inventory_id=row.id, deducted=row_qty, deleted=True)
                 )
                 await db.delete(row)
             else:
-                deducted = remaining
+                deducted: Decimal = remaining
                 total_deducted += deducted
                 total_remaining -= deducted
-                row.quantity = Decimal(str(round(row_qty - deducted, 10)))
-                remaining = 0
+                row.quantity = row_qty - deducted
+                remaining = Decimal("0")
                 rows_affected.append(
-                    InventoryDeduction(inventory_id=row.id, deducted=Decimal(str(round(deducted, 10))), deleted=False)
+                    InventoryDeduction(inventory_id=row.id, deducted=deducted, deleted=False)
                 )
 
-        if rows and total_remaining < 1e-9 and im is not None:
+        if rows and total_remaining == Decimal("0") and im is not None:
             depleted.append((mid, im.bit_id))
 
         deductions.append(
@@ -114,7 +114,7 @@ async def cook_recipe(
                 ingredient_master_id=mid,
                 ingredient_name=ingredient_name,
                 requested=usage.quantity,
-                deducted=Decimal(str(round(total_deducted, 10))),
+                deducted=total_deducted,
                 rows_affected=rows_affected,
             )
         )

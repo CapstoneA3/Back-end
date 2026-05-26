@@ -56,7 +56,7 @@ async def get_recipe(
 
 
 @router.post(
-    "/{recipe_id}/cook",
+    "/{recipe_id}/complete",
     response_model=ApiResponse[CookResult],
     status_code=200,
     summary="요리 완료 처리",
