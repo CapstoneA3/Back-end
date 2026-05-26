@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     docs_username: str = "admin"
     docs_password: str = "changeme"
     cors_origins: list[str] = ["http://localhost:3000"]
+    clova_ocr_url: str = ""
+    clova_ocr_secret: str = ""
 
     model_config = {"env_file": (".env", ".env.local"), "env_file_encoding": "utf-8", "extra": "ignore"}
 
