@@ -35,6 +35,7 @@ ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"}
         **_AUTH_401,
         400: {"description": "지원하지 않는 이미지 포맷"},
         413: {"description": "이미지 파일이 너무 큽니다 (최대 10 MB)"},
+        503: {"description": "OCR 서비스 미설정"},
         504: {"description": "CLOVA OCR API timeout"},
     },
     openapi_extra=_BEARER,
@@ -53,6 +54,8 @@ async def scan_receipt_endpoint(
         raw_items = await scan_receipt(image_bytes, image.filename or "receipt.jpg")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="OCR service timeout")
+    except httpx.UnsupportedProtocol:
+        raise HTTPException(status_code=503, detail="OCR 서비스가 설정되지 않았습니다.")
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (400, 415):
             raise HTTPException(status_code=400, detail="지원하지 않는 이미지 형식")
