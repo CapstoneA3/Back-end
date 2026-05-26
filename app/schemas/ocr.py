@@ -12,7 +12,7 @@ class OcrRawItem(BaseModel):
 class OcrCandidate(BaseModel):
     ingredient_master_id: int
     ingredient_name: str
-    confidence: float
+    confidence: float = Field(ge=0, le=100)
 
 
 class OcrScanCandidate(BaseModel):

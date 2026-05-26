@@ -25,6 +25,13 @@ def test_ocr_candidate():
     assert c.confidence == 95.2
 
 
+def test_ocr_candidate_rejects_invalid_confidence():
+    with pytest.raises(ValidationError):
+        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=150.0)
+    with pytest.raises(ValidationError):
+        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=-1.0)
+
+
 def test_ocr_scan_candidate_register():
     c = OcrScanCandidate(
         raw_text="닭가슴살200g",
