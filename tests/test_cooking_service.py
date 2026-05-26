@@ -97,3 +97,41 @@ def test_alpha_score_larger_quantity_ranks_higher_same_expiry():
     big = _alpha_score(1.0, 200.0, today + timedelta(days=5))
     small = _alpha_score(1.0, 100.0, today + timedelta(days=5))
     assert big > small
+
+
+# ─── cook_recipe service tests ─────────────────────────────────────
+
+from app.services.cooking_service import cook_recipe
+
+
+def _make_recipe(recipe_id=7, name="닭볶음탕"):
+    from unittest.mock import MagicMock
+    r = MagicMock()
+    r.id = recipe_id
+    r.name = name
+    return r
+
+
+@pytest.mark.asyncio
+async def test_cook_recipe_recipe_not_found(mock_db, mock_redis):
+    from fastapi import HTTPException
+    mock_db.get = AsyncMock(return_value=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await cook_recipe(mock_db, mock_redis, "user1", 9999, CookRequest(ingredients=[]))
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_cook_recipe_empty_ingredients_skips_db(mock_db, mock_redis):
+    recipe = _make_recipe()
+    mock_db.get = AsyncMock(return_value=recipe)
+    mock_db.commit = AsyncMock()
+
+    result = await cook_recipe(mock_db, mock_redis, "user1", 7, CookRequest(ingredients=[]))
+
+    assert result.recipe_id == 7
+    assert result.recipe_name == "닭볶음탕"
+    assert result.deductions == []
+    mock_db.commit.assert_not_called()

@@ -32,4 +32,11 @@ async def cook_recipe(
     recipe_id: int,
     data: CookRequest,
 ) -> CookResult:
-    raise NotImplementedError
+    recipe = await db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if not data.ingredients:
+        return CookResult(recipe_id=recipe_id, recipe_name=recipe.name, deductions=[])
+
+    raise NotImplementedError  # Task 5에서 구현
