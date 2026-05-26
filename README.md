@@ -22,6 +22,9 @@
 | 사용자 인증 | Supabase Auth (JWT Bearer) |
 | BitSet 캐시 | Redis |
 | 스키마 검증 | Pydantic v2 |
+| OCR | Naver CLOVA OCR API |
+| 퍼지 매칭 | rapidfuzz |
+| 비동기 HTTP | httpx |
 
 ---
 
@@ -51,6 +54,8 @@ cp .env.example .env.local
 | `REDIS_URL` | Y | Redis 연결 URL (아래 환경별 설정 참고) |
 | `DOCS_USERNAME` | Y | Swagger UI 접근용 Basic Auth 아이디 |
 | `DOCS_PASSWORD` | Y | Swagger UI 접근용 Basic Auth 비밀번호 |
+| `CLOVA_OCR_URL` | N | Naver CLOVA OCR API invoke URL (OCR 기능 사용 시 필수) |
+| `CLOVA_OCR_SECRET` | N | CLOVA OCR `X-OCR-SECRET` 헤더값 (OCR 기능 사용 시 필수) |
 
 #### Redis 환경별 설정
 
@@ -811,6 +816,150 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ---
 
+## OCR API
+
+마트 영수증 이미지를 업로드하면 CLOVA OCR로 품목명을 추출하고 `ingredient_master`와 매칭하여 재고 등록 후보를 반환한다. 사용자가 후보를 확인·수정 후 확정하면 인벤토리에 일괄 등록된다.
+
+**모든 엔드포인트에 Bearer 토큰 필수.**
+
+> `CLOVA_OCR_URL` 및 `CLOVA_OCR_SECRET` 환경변수가 설정되지 않으면 `/ocr/scan` 호출 시 503이 반환된다.
+
+---
+
+### POST `/ocr/scan` — 영수증 스캔 (OCR)
+
+영수증 이미지를 업로드하면 CLOVA OCR로 품목명을 추출하고 `ingredient_master`와 퍼지 매칭하여 등록 후보를 반환한다.
+
+#### 요청 헤더
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: multipart/form-data
+```
+
+#### 요청 바디
+
+| 필드 | 타입 | 필수 | 제약 | 설명 |
+|------|------|------|------|------|
+| `image` | file | Y | jpeg/png/pdf, 최대 10 MB | 영수증 이미지 |
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "raw_text": "닭가슴살200g",
+        "recommended_action": "register",
+        "candidates": [
+          { "ingredient_master_id": 5, "ingredient_name": "닭가슴살", "confidence": 95.2 },
+          { "ingredient_master_id": 38, "ingredient_name": "닭날개", "confidence": 72.1 }
+        ]
+      },
+      {
+        "raw_text": "비닐봉투",
+        "recommended_action": "skip",
+        "candidates": []
+      }
+    ]
+  },
+  "message": ""
+}
+```
+
+- `recommended_action: "register"`: 매칭 신뢰도 ≥ 70, 등록 권장
+- `recommended_action: "skip"`: 매칭 실패 또는 제외 품목 (비닐봉투, 쿠폰 등)
+- `candidates`: 상위 3개 퍼지 매칭 결과 (confidence 내림차순)
+- OCR 인식 품목 없으면 `data.items: []` 반환 (에러 아님)
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 400 | 지원하지 않는 이미지 형식 |
+| 401 | Authorization 헤더 없음 또는 토큰 만료·무효 |
+| 413 | 이미지 파일 크기 10 MB 초과 |
+| 503 | `CLOVA_OCR_URL` 미설정 |
+| 504 | CLOVA API 응답 5초 초과 |
+
+---
+
+### POST `/ocr/confirm` — 재고 일괄 등록 확정
+
+스캔 결과에서 사용자가 선택한 항목을 인벤토리에 일괄 등록한다. 항목별 독립 트랜잭션으로 처리되어 일부 실패해도 나머지는 정상 등록된다.
+
+#### 요청 헤더
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+#### 요청 바디
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `items` | array | Y | 등록할 재료 목록 |
+| `items[].ingredient_master_id` | integer | Y | 식재료 마스터 ID |
+| `items[].quantity` | number | Y | 수량 (`> 0`) |
+| `items[].expire_date` | date | N | 유통기한 (`YYYY-MM-DD`). 생략 시 `default_shelf_days` 기준 자동 계산 |
+
+#### 요청 예시
+
+```json
+POST /api/v1/ocr/confirm
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+
+{
+  "items": [
+    { "ingredient_master_id": 5, "quantity": 200.0, "expire_date": "2026-06-10" },
+    { "ingredient_master_id": 2, "quantity": 10.0 }
+  ]
+}
+```
+
+#### 응답 예시 (201 Created)
+
+```json
+{
+  "success": true,
+  "data": {
+    "registered": [
+      {
+        "id": 101,
+        "user_id": "uuid-1234-...",
+        "ingredient_master_id": 5,
+        "quantity": "200.0",
+        "unit": "개",
+        "expire_date": "2026-06-10",
+        "created_at": "2026-05-27T10:00:00+09:00",
+        "ingredient": { "id": 5, "bit_id": 4, "name": "닭가슴살", "category": "육류", "default_shelf_days": 3, "risk_factor": "3.00" },
+        "traffic_light": "green",
+        "score": 0.0
+      }
+    ],
+    "errors": [
+      { "ingredient_master_id": 999, "reason": "Ingredient not found" }
+    ]
+  },
+  "message": "재고가 등록되었습니다."
+}
+```
+
+- `registered`가 비어있어도 `success: true` (사용자가 모두 skip했거나 전부 실패)
+- 성공 항목은 `registered`, 실패 항목은 `errors`에 기록
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 401 | Authorization 헤더 없음 또는 토큰 만료·무효 |
+| 422 | 요청 바디 파싱 실패 (`quantity ≤ 0` 등) |
+
+---
+
 ## 공통 응답 스키마
 
 ### 성공 응답
@@ -845,8 +994,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 | 401 | 인증 실패 (헤더 누락 또는 토큰 만료) |
 | 403 | 권한 없음 (타인 소유 리소스) |
 | 404 | 리소스 없음 |
+| 413 | 파일 크기 초과 |
 | 422 | 요청 바디 파싱 실패 |
 | 500 | 서버 내부 오류 |
+| 503 | 외부 서비스 설정 오류 |
+| 504 | 외부 API 타임아웃 |
 
 ---
 
@@ -944,9 +1096,4 @@ D-day = max(1, expire_date − 오늘)
 | F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | ✅ 완료 |
 | F-04 | 요리 완료 처리 (α-스코어 차감) | `POST /recipes/{id}/complete` | ✅ 완료 |
 | F-05 | 재고 수정·삭제 | `PATCH /inventory/{id}`, `DELETE /inventory/{id}` | ✅ 완료 |
-
-### 보류 기능
-
-| 기능 | 설명 |
-|------|------|
-| OCR 영수증 인식 | 영수증 촬영으로 식재료 일괄 등록 |
+| — | OCR 영수증 스캔 및 재고 일괄 등록 | `POST /ocr/scan`, `POST /ocr/confirm` | ✅ 완료 |
