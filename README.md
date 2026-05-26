@@ -604,7 +604,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 |--------|------|------|------|------|
 | GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) | ✅ 완료 |
 | GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | 재료·조리 순서 포함 | ✅ 완료 |
-| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) | 🔲 예정 |
+| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | α-스코어 재고 차감 + BitSet 갱신 (F-04) | ✅ 완료 |
 
 ### GET `/recipes` — 추천 레시피 목록 (F-03)
 
@@ -730,9 +730,84 @@ GET /api/v1/recipes/7
 
 ### POST `/recipes/{id}/complete` — 요리 완료 처리 (F-04)
 
-레시피 재료를 FIFO(expire_date 오름차순) 방식으로 재고에서 차감한다. 소진된 재료는 BitSet에서 해당 비트를 0으로 전환한다.
+레시피를 채택하여 요리를 완료한다. 클라이언트가 전달한 실제 사용량을 α-스코어 내림차순(유통기한 임박·수량 많은 항목 우선)으로 재고에서 차감한다. 재고가 완전히 소진된 재료는 Redis BitSet 해당 비트를 자동으로 0으로 전환한다.
 
-**Bearer 토큰 필수 · 미구현(예정)**
+**Bearer 토큰 필수**
+
+- `ingredients`에 포함된 재료만 차감 — 레시피에 있어도 목록에 없으면 차감하지 않음
+- 재고 부족 시 보유량만큼 부분 차감 (`deducted < requested`)
+- 같은 재료의 여러 재고 행은 α-스코어 내림차순으로 우선순위 결정
+
+#### 요청 헤더
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+#### 경로 파라미터
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `id` | integer | 레시피 PK |
+
+#### 요청 바디
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `ingredients` | array | 사용한 재료 목록 (빈 배열 허용) |
+| `ingredients[].ingredient_master_id` | integer | 식재료 마스터 ID |
+| `ingredients[].quantity` | number | 실제 사용량 (`> 0`) |
+
+#### 요청 예시
+
+```json
+POST /api/v1/recipes/7/complete
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+
+{
+  "ingredients": [
+    { "ingredient_master_id": 5, "quantity": 200.0 },
+    { "ingredient_master_id": 12, "quantity": 1.0 }
+  ]
+}
+```
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "recipe_id": 7,
+    "recipe_name": "닭볶음탕",
+    "deductions": [
+      {
+        "ingredient_master_id": 5,
+        "ingredient_name": "닭가슴살",
+        "requested": "200.0",
+        "deducted": "200.0",
+        "rows_affected": [
+          { "inventory_id": 12, "deducted": "150.0", "deleted": true },
+          { "inventory_id": 18, "deducted": "50.0",  "deleted": false }
+        ]
+      }
+    ]
+  },
+  "message": "요리가 완료되었습니다."
+}
+```
+
+- `deducted < requested`: 재고 부족으로 부분 차감됨
+- `deleted: true`: 해당 인벤토리 행이 수량 0으로 삭제됨
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 401 | Authorization 헤더 누락 또는 토큰 만료·무효 |
+| 404 | 존재하지 않는 recipe_id |
+| 422 | 중복 `ingredient_master_id` 또는 `quantity ≤ 0` |
 
 ---
 
@@ -837,14 +912,20 @@ score_recipe = Σ score_ingredient  (레시피에 포함된 보유 재료 전체
 
 ---
 
-### 4. FIFO 재고 차감
+### 4. α-스코어 재고 차감
 
-'요리 완료' 시 레시피 재료를 `expire_date` 오름차순(선입선출)으로 차감한다.
+'요리 완료' 시 클라이언트가 전달한 실제 사용량을 기준으로 α-스코어 **내림차순**(유통기한 임박·수량 많은 항목 우선)으로 차감한다.
 
 ```
-1. recipe_ingredient 목록 조회
-2. 각 재료별 user_inventory → expire_date 오름차순 정렬
-3. 필요 수량만큼 순차 차감; 수량 0이 되면 해당 row 삭제
+α = risk_factor × quantity / (D-day² + 1)
+D-day = max(1, expire_date − 오늘)
+
+1. 클라이언트가 재료별 실제 사용량 전달
+2. 각 재료별 user_inventory → α-스코어 내림차순 정렬
+3. 필요 수량만큼 순차 차감:
+   - remaining ≥ row.quantity → 해당 row 전량 삭제 (deleted=true)
+   - remaining < row.quantity → 해당 row 수량 갱신 (deleted=false)
+   - 재고 부족 시 보유량만큼만 부분 차감 (deducted < requested)
 4. 재고 완전 소진 시 BitSet Bit-Flip:
    if sum(remaining quantity) == 0:
        user_bitset &= ~(1 << bit_id)  # 해당 비트 OFF
@@ -861,7 +942,7 @@ score_recipe = Σ score_ingredient  (레시피에 포함된 보유 재료 전체
 | F-01 | 식재료 등록 | `POST /inventory` | ✅ 완료 |
 | F-02 | 재고 대시보드 (신호등 + α-스코어) | `GET /inventory` | ✅ 완료 |
 | F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | ✅ 완료 |
-| F-04 | 요리 완료 처리 (FIFO 차감) | `POST /recipes/{id}/complete` | 🔲 예정 |
+| F-04 | 요리 완료 처리 (α-스코어 차감) | `POST /recipes/{id}/complete` | ✅ 완료 |
 | F-05 | 재고 수정·삭제 | `PATCH /inventory/{id}`, `DELETE /inventory/{id}` | ✅ 완료 |
 
 ### 보류 기능
