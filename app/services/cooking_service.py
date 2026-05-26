@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -17,6 +19,8 @@ from app.schemas.cooking import (
     InventoryDeduction,
 )
 from app.services.bitset_service import clear_bit
+
+_logger = logging.getLogger(__name__)
 
 
 def _alpha_score(risk_factor: float, quantity: float, expire_date: date) -> float:
@@ -117,8 +121,14 @@ async def cook_recipe(
 
     await db.commit()
 
-    for _, bit_id in depleted:
-        await clear_bit(redis, user_id, bit_id, db)
+    if depleted:
+        results = await asyncio.gather(
+            *(clear_bit(redis, user_id, bit_id, db) for _, bit_id in depleted),
+            return_exceptions=True,
+        )
+        for exc in results:
+            if isinstance(exc, Exception):
+                _logger.error("clear_bit failed after commit: %s", exc)
 
     return CookResult(
         recipe_id=recipe_id,

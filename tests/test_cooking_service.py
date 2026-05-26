@@ -318,3 +318,27 @@ async def test_cook_recipe_multiple_ingredients(mock_db, mock_redis):
 
     # 닭가슴살(42번 비트)만 클리어, 양파는 잔여 있으므로 set 1회
     assert mock_redis.set.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cook_recipe_unknown_ingredient_master(mock_db, mock_redis):
+    """IngredientMaster에 없는 ingredient_master_id → ingredient_name=str(mid), 비트 클리어 없음."""
+    recipe = _make_recipe()
+    item = _make_inv(item_id=10, mid=99, quantity="100", days=3)
+
+    mock_db.get = AsyncMock(return_value=recipe)
+    # IngredientMaster 조회 결과 없음 (unknown id)
+    mock_db.execute = AsyncMock(side_effect=[_db_result([]), _db_result([item])])
+    mock_db.delete = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_redis.set = AsyncMock()
+
+    result = await cook_recipe(
+        mock_db, mock_redis, "user1", 7,
+        CookRequest(ingredients=[IngredientUsage(ingredient_master_id=99, quantity=Decimal("100"))]),
+    )
+
+    d = result.deductions[0]
+    assert d.ingredient_name == "99"  # fallback: str(mid)
+    assert d.deducted == Decimal("100")  # 재고는 정상 차감
+    mock_redis.set.assert_not_called()  # im is None → 비트 클리어 없음
