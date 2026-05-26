@@ -7,7 +7,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from app.core.config import settings
 from app.core.redis_client import close_redis
-from app.routers import auth, ingredients, inventory, recipes
+from app.routers import auth, ingredients, inventory, recipes, ocr
 
 _basic = HTTPBasic()
 
@@ -58,6 +58,7 @@ app = FastAPI(
         {"name": "ingredients", "description": "식재료 마스터 데이터 검색 및 단건 조회"},
         {"name": "inventory", "description": "냉장고 재고 등록·조회·수정·삭제 (인증 필요)"},
         {"name": "recipes", "description": "레시피 추천 조회 및 상세 조회"},
+        {"name": "ocr", "description": "영수증 OCR 스캔 및 재고 일괄 등록 (인증 필요)"},
     ],
     docs_url=None,
     redoc_url=None,
@@ -84,6 +85,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(ingredients.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(recipes.router, prefix="/api/v1")
+app.include_router(ocr.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="헬스 체크", include_in_schema=False)
