@@ -1,11 +1,13 @@
 import secrets
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from app.core.config import settings
-from app.routers import auth, ingredients, inventory
+from app.core.redis_client import close_redis
+from app.routers import auth, ingredients, inventory, recipes
 
 _basic = HTTPBasic()
 
@@ -25,6 +27,19 @@ def _verify_docs(credentials: HTTPBasicCredentials = Depends(_basic)):
         )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import logging
+    logger = logging.getLogger("uvicorn")
+    logger.info("=== 등록된 라우트 목록 ===")
+    for route in app.routes:
+        if hasattr(route, "path") and hasattr(route, "methods"):
+            logger.info(f"  {route.methods} {route.path}")
+    logger.info("=========================")
+    yield
+    await close_redis()
+
+
 app = FastAPI(
     title="냉장고 재고 관리 API",
     version="0.1.0",
@@ -35,17 +50,27 @@ app = FastAPI(
 
 보호된 엔드포인트는 **Bearer JWT 토큰**이 필요합니다.
 
-1. `POST /api/v1/auth/signup` 또는 `POST /api/v1/auth/login`으로 토큰 발급
-2. 이후 요청 헤더에 포함: `Authorization: Bearer <access_token>`
+1. POST /api/v1/auth/signup 또는 POST /api/v1/auth/login 으로 토큰 발급
+2. 이후 요청 헤더에 포함: Authorization: Bearer <access_token>
 """,
     openapi_tags=[
         {"name": "auth", "description": "회원가입, 로그인, 내 정보 조회"},
         {"name": "ingredients", "description": "식재료 마스터 데이터 검색 및 단건 조회"},
         {"name": "inventory", "description": "냉장고 재고 등록·조회·수정·삭제 (인증 필요)"},
+        {"name": "recipes", "description": "레시피 추천 조회 및 상세 조회"},
     ],
     docs_url=None,
     redoc_url=None,
+    lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def _debug_requests(request, call_next):
+    import logging
+    logging.getLogger("uvicorn").info(f">>> INCOMING: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logging.getLogger("uvicorn").info(f">>> RESPONSE: {response.status_code}")
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,6 +83,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(ingredients.router, prefix="/api/v1")
 app.include_router(inventory.router, prefix="/api/v1")
+app.include_router(recipes.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="헬스 체크", include_in_schema=False)
@@ -76,6 +102,8 @@ async def redoc_ui(_: None = Depends(_verify_docs)):
 
 
 def _custom_openapi():
+    import logging
+    logging.getLogger("uvicorn").info(f"_custom_openapi called, cached={bool(app.openapi_schema)}, routes={len(app.routes)}")
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(

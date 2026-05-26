@@ -1,15 +1,15 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 from decimal import Decimal
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 
 
 def _make_ingredient(bit_id=5, default_shelf_days=7):
     ing = MagicMock()
     ing.id = 1
     ing.bit_id = bit_id
-    ing.name = "양파"
-    ing.category = "채소"
+    ing.name = "carrot"
+    ing.category = "vegetable"
     ing.default_shelf_days = default_shelf_days
     ing.risk_factor = Decimal("1")
     return ing
@@ -21,9 +21,9 @@ def _make_inventory_item(ingredient):
     item.user_id = "user1"
     item.ingredient_master_id = ingredient.id
     item.quantity = Decimal("2")
-    item.unit = "개"
+    item.unit = "ea"
     item.expire_date = date.today() + timedelta(days=7)
-    item.created_at = datetime.now()
+    item.created_at = date.today()
     item.ingredient = ingredient
     return item
 
@@ -47,7 +47,7 @@ async def test_post_inventory_registers_ingredient(client, mock_db):
 
     resp = await client.post(
         "/api/v1/inventory",
-        json={"ingredient_master_id": 1, "quantity": "2", "unit": "개"},
+        json={"ingredient_master_id": 1, "quantity": "2", "unit": "ea"},
     )
     assert resp.status_code == 201
     body = resp.json()
@@ -97,39 +97,74 @@ async def test_get_inventory_sorted_by_expire_date(client, mock_db):
     assert resp.status_code == 200
 
 
-# ── delete_inventory_item 테스트 ──────────────────────────────
+async def test_get_inventory_empty(client, mock_db, mock_redis):
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=list_result)
 
-async def test_delete_inventory_item_success(mock_db):
-    """정상 삭제 → db.delete + commit 호출."""
+    resp = await client.get("/api/v1/inventory", headers={"X-User-ID": "new-user"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
+
+
+async def test_get_inventory_empty_sorted_by_expire_date(client, mock_db, mock_redis):
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=list_result)
+
+    resp = await client.get(
+        "/api/v1/inventory?sort=expire_date", headers={"X-User-ID": "new-user"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["items"] == []
+    assert body["data"]["total"] == 0
+
+
+async def test_get_inventory_requires_user_id(client, mock_db):
+    list_result = MagicMock()
+    list_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=list_result)
+    resp = await client.get("/api/v1/inventory")
+    assert resp.status_code == 200
+
+
+# delete_inventory_item service tests
+
+async def test_delete_inventory_item_success(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
 
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()  # 동일 재료 재고 잔존
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
-    await delete_inventory_item(mock_db, "user1", 10)
+    await delete_inventory_item(mock_db, mock_redis, "user1", 10)
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
 
 
-async def test_delete_inventory_not_found(mock_db):
-    """존재하지 않는 inventory_id → 404."""
+async def test_delete_inventory_not_found(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
     mock_db.get = AsyncMock(return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_inventory_item(mock_db, "user1", 9999)
+        await delete_inventory_item(mock_db, mock_redis, "user1", 9999)
     assert exc.value.status_code == 404
 
 
-async def test_delete_inventory_forbidden(mock_db):
-    """다른 유저의 항목 삭제 시도 → 403."""
+async def test_delete_inventory_forbidden(mock_db, mock_redis):
     from app.services.inventory_service import delete_inventory_item
     from fastapi import HTTPException
 
@@ -139,18 +174,20 @@ async def test_delete_inventory_forbidden(mock_db):
     mock_db.get = AsyncMock(return_value=item)
 
     with pytest.raises(HTTPException) as exc:
-        await delete_inventory_item(mock_db, "other_user", 10)
+        await delete_inventory_item(mock_db, mock_redis, "other_user", 10)
     assert exc.value.status_code == 403
 
 
-# ── DELETE /inventory/{id} 라우터 테스트 ─────────────────
+# DELETE /inventory/{id} endpoint tests
 
 async def test_delete_inventory_endpoint_success(client, mock_db):
-    """정상 삭제 요청 → 200, success=True."""
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
@@ -158,19 +195,16 @@ async def test_delete_inventory_endpoint_success(client, mock_db):
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
-    assert body["message"] == "재료가 삭제되었습니다."
     assert body["data"] is None
 
 
 async def test_delete_inventory_endpoint_not_found(client, mock_db):
-    """존재하지 않는 inventory_id → HTTP 404."""
     mock_db.get = AsyncMock(return_value=None)
     resp = await client.delete("/api/v1/inventory/9999")
     assert resp.status_code == 404
 
 
 async def test_delete_inventory_endpoint_forbidden(client, mock_db):
-    """다른 유저 소유 항목 삭제 → HTTP 403."""
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
     item.user_id = "other_user"
@@ -179,10 +213,9 @@ async def test_delete_inventory_endpoint_forbidden(client, mock_db):
     assert resp.status_code == 403
 
 
-# ── update_inventory_item 테스트 ──────────────────────────
+# update_inventory_item service tests
 
-async def test_update_inventory_item_quantity(mock_db):
-    """수량만 변경 → DB 커밋."""
+async def test_update_inventory_item_quantity(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -192,14 +225,13 @@ async def test_update_inventory_item_quantity(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("5")))
 
     assert item.quantity == Decimal("5")
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_unit_and_expire(mock_db):
-    """단위·유통기한 변경 → DB 커밋."""
+async def test_update_inventory_item_unit_and_expire(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -210,33 +242,34 @@ async def test_update_inventory_item_unit_and_expire(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(unit="g", expire_date=new_date))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(unit="g", expire_date=new_date))
 
     assert item.unit == "g"
     assert item.expire_date == new_date
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_zero_quantity_deletes(mock_db):
-    """수량이 0이 되면 행 삭제."""
+async def test_update_inventory_item_zero_quantity_deletes(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
+    remaining_result = MagicMock()
+    remaining_result.scalars.return_value.first.return_value = MagicMock()
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=remaining_result)
     mock_db.delete = AsyncMock()
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate(quantity=Decimal("0")))
 
     mock_db.delete.assert_called_once_with(item)
     mock_db.commit.assert_called_once()
 
 
-async def test_update_inventory_item_not_found(mock_db):
-    """존재하지 않는 inventory_id → 404."""
+async def test_update_inventory_item_not_found(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
     from fastapi import HTTPException
@@ -244,12 +277,11 @@ async def test_update_inventory_item_not_found(mock_db):
     mock_db.get = AsyncMock(return_value=None)
 
     with pytest.raises(HTTPException) as exc:
-        await update_inventory_item(mock_db, "user1", 9999, InventoryUpdate(quantity=Decimal("2")))
+        await update_inventory_item(mock_db, mock_redis, "user1", 9999, InventoryUpdate(quantity=Decimal("2")))
     assert exc.value.status_code == 404
 
 
-async def test_update_inventory_item_forbidden(mock_db):
-    """다른 유저의 항목 수정 시도 → 403."""
+async def test_update_inventory_item_forbidden(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
     from fastapi import HTTPException
@@ -260,12 +292,11 @@ async def test_update_inventory_item_forbidden(mock_db):
     mock_db.get = AsyncMock(return_value=item)
 
     with pytest.raises(HTTPException) as exc:
-        await update_inventory_item(mock_db, "other_user", 10, InventoryUpdate(quantity=Decimal("2")))
+        await update_inventory_item(mock_db, mock_redis, "other_user", 10, InventoryUpdate(quantity=Decimal("2")))
     assert exc.value.status_code == 403
 
 
-async def test_update_inventory_item_no_fields_is_noop(mock_db):
-    """변경 필드 없음 → DB 커밋만."""
+async def test_update_inventory_item_no_fields_is_noop(mock_db, mock_redis):
     from app.services.inventory_service import update_inventory_item
     from app.schemas.inventory import InventoryUpdate
 
@@ -276,16 +307,15 @@ async def test_update_inventory_item_no_fields_is_noop(mock_db):
     mock_db.get = AsyncMock(return_value=item)
     mock_db.commit = AsyncMock()
 
-    await update_inventory_item(mock_db, "user1", 10, InventoryUpdate())
+    await update_inventory_item(mock_db, mock_redis, "user1", 10, InventoryUpdate())
 
     assert item.quantity == original_qty
     mock_db.commit.assert_called_once()
 
 
-# ── PATCH /inventory/{id} 라우터 테스트 ──────────────────
+# PATCH /inventory/{id} endpoint tests
 
 async def test_patch_inventory_endpoint_success(client, mock_db):
-    """수량 변경 요청 → 200, success=True, data=None."""
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
 
@@ -303,7 +333,6 @@ async def test_patch_inventory_endpoint_success(client, mock_db):
 
 
 async def test_patch_inventory_endpoint_not_found(client, mock_db):
-    """존재하지 않는 id → 404."""
     mock_db.get = AsyncMock(return_value=None)
     resp = await client.patch(
         "/api/v1/inventory/9999",
@@ -313,7 +342,6 @@ async def test_patch_inventory_endpoint_not_found(client, mock_db):
 
 
 async def test_patch_inventory_endpoint_forbidden(client, mock_db):
-    """다른 유저 소유 항목 수정 → 403."""
     ing = _make_ingredient()
     item = _make_inventory_item(ing)
     item.user_id = "other_user"

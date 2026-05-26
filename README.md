@@ -37,13 +37,10 @@ pip install -r requirements.txt
 
 ### 2. 환경변수 설정
 
-프로젝트 루트에 `.env.local` 파일을 생성한다.
+프로젝트 루트에 `.env.local` 파일을 생성한다. `.env.example`을 복사해서 사용한다.
 
-```env
-DATABASE_URL=postgresql+asyncpg://<user>:<password>@<host>/<db>
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<anon-key>
-REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
+```bash
+cp .env.example .env.local
 ```
 
 | 변수 | 필수 | 설명 |
@@ -51,11 +48,37 @@ REDIS_URL=redis://localhost:6379   # 기본값, 생략 가능
 | `DATABASE_URL` | Y | PostgreSQL 비동기 연결 문자열 (`postgresql+asyncpg://`) |
 | `SUPABASE_URL` | Y | Supabase 프로젝트 URL |
 | `SUPABASE_ANON_KEY` | Y | Supabase anon (public) 키 |
-| `REDIS_URL` | N | Redis 연결 URL (기본값: `redis://localhost:6379`) |
+| `REDIS_URL` | Y | Redis 연결 URL (아래 환경별 설정 참고) |
+| `DOCS_USERNAME` | Y | Swagger UI 접근용 Basic Auth 아이디 |
+| `DOCS_PASSWORD` | Y | Swagger UI 접근용 Basic Auth 비밀번호 |
+
+#### Redis 환경별 설정
+
+**배포 환경 (Upstash)**
+
+[Upstash Console](https://console.upstash.com)에서 Redis 데이터베이스 생성 후 `REST URL` 또는 `Redis URL`을 복사한다.
+
+```env
+REDIS_URL=rediss://default:<password>@<host>.upstash.io:6379
+```
+
+`rediss://` 스키마를 사용하면 TLS가 자동 적용된다.
+
+**로컬 개발**
+
+Docker로 Redis를 실행한다.
+
+```bash
+docker run -d -p 6379:6379 redis:7-alpine
+```
+
+```env
+REDIS_URL=redis://localhost:6379
+```
 
 ### 3. 서버 실행
 
-Redis가 로컬에서 실행 중이어야 한다 (`redis-server` 또는 Docker: `docker run -p 6379:6379 redis`).
+배포 환경에서는 Upstash Redis를 사용하므로 별도 Redis 설치가 필요 없다. 로컬 개발 시에만 위 Docker 명령으로 Redis를 먼저 실행한다.
 
 ```bash
 uvicorn app.main:app --reload
@@ -323,9 +346,7 @@ GET /api/v1/ingredients/42
 
 ### POST `/inventory` — 재고 등록 (F-01)
 
-냉장고에 식재료를 등록한다. DB에 저장된다.
-
-> **예정:** 레시피 추천(F-03) 구현 시 Redis BitSet의 해당 `bit_id`를 1로 갱신하는 로직이 추가된다.
+냉장고에 식재료를 등록한다. DB에 저장되며 Redis BitSet의 해당 비트가 즉시 갱신된다.
 
 - `expire_date` 생략 시 `default_shelf_days` 기준으로 자동 계산 (오늘 + default_shelf_days)
 - `unit` 생략 시 기본값 `"개"` 적용
@@ -544,8 +565,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 재고 항목을 삭제한다.
 
-> **예정:** 레시피 추천(F-03) 구현 시 잔여 재고가 0이 되면 Redis BitSet의 `bit_id`를 0으로 전환하는 로직이 추가된다.
-
 #### 경로 파라미터
 
 | 파라미터 | 타입 | 설명 |
@@ -579,27 +598,141 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ---
 
-## 레시피 API — 예정 (Recipes)
+## 레시피 API (Recipes)
 
-> 아직 구현되지 않은 엔드포인트입니다. 명세만 기술합니다.
-
-| 메서드 | 경로 | 설명 | 기능 |
-|--------|------|------|------|
-| GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) |
-| GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | — |
-| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) |
+| 메서드 | 경로 | 설명 | 기능 | 상태 |
+|--------|------|------|------|------|
+| GET | `/api/v1/recipes` | 추천 레시피 목록 | 비트마스킹 + α-스코어 정렬 (F-03) | ✅ 완료 |
+| GET | `/api/v1/recipes/{id}` | 레시피 상세 조회 | 재료·조리 순서 포함 | ✅ 완료 |
+| POST | `/api/v1/recipes/{id}/complete` | 요리 완료 처리 | FIFO 재고 차감 + BitSet 갱신 (F-04) | 🔲 예정 |
 
 ### GET `/recipes` — 추천 레시피 목록 (F-03)
 
-사용자 보유 재료 BitSet과 각 레시피의 `requirement_mask`를 AND 연산하여 조리 가능 레시피를 필터링하고, α-스코어 내림차순으로 정렬해 반환한다.
+사용자 냉장고 재료의 Redis BitSet과 각 레시피의 `recipe_bit`을 AND 연산하여 조리 가능 레시피를 필터링하고, α-스코어 내림차순으로 정렬해 반환한다.
 
 **Bearer 토큰 필수**
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 기본값 | 제약 | 설명 |
+|----------|------|--------|------|------|
+| `limit` | integer | `20` | `1 ≤ limit ≤ 100` | 반환할 레시피 최대 수 |
+
+#### 요청 예시
+
+```http
+GET /api/v1/recipes?limit=10
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 2,
+    "items": [
+      {
+        "id": 7,
+        "name": "계란볶음밥",
+        "cook_time_min": 15,
+        "servings": 1,
+        "score": 8.5,
+        "rank": 1,
+        "ingredients": [
+          {
+            "id": 21,
+            "recipe_id": 7,
+            "ingredient_master_id": 42,
+            "quantity": "2",
+            "unit": "개",
+            "ingredient_name": "계란"
+          }
+        ]
+      }
+    ]
+  },
+  "message": ""
+}
+```
+
+재고가 없거나 조리 가능 레시피가 없으면 `data: { "total": 0, "items": [] }` 반환.
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 401 | Authorization 헤더 누락 또는 토큰 만료·무효 |
+| 422 | `limit` 파라미터 범위 초과 |
+
+---
+
+### GET `/recipes/{id}` — 레시피 상세 조회
+
+레시피 ID로 상세 정보, 필요 재료 목록, 조리 순서를 반환한다.
+
+**인증 불필요**
+
+#### 경로 파라미터
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `id` | integer | 레시피 PK |
+
+#### 요청 예시
+
+```http
+GET /api/v1/recipes/7
+```
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 7,
+    "name": "계란볶음밥",
+    "cook_time_min": 15,
+    "servings": 1,
+    "ingredients": [
+      {
+        "id": 21,
+        "recipe_id": 7,
+        "ingredient_master_id": 42,
+        "quantity": "2",
+        "unit": "개",
+        "ingredient_name": "계란"
+      }
+    ],
+    "steps": [
+      {
+        "id": 101,
+        "recipe_id": 7,
+        "step_order": 1,
+        "description": "팬을 달군 후 기름을 두른다.",
+        "tip": null
+      }
+    ]
+  },
+  "message": ""
+}
+```
+
+#### 에러 응답
+
+| 상태 | 원인 |
+|------|------|
+| 404 | 존재하지 않는 recipe_id |
+
+---
 
 ### POST `/recipes/{id}/complete` — 요리 완료 처리 (F-04)
 
 레시피 재료를 FIFO(expire_date 오름차순) 방식으로 재고에서 차감한다. 소진된 재료는 BitSet에서 해당 비트를 0으로 전환한다.
 
-**Bearer 토큰 필수**
+**Bearer 토큰 필수 · 미구현(예정)**
 
 ---
 
@@ -648,8 +781,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 각 식재료는 `ingredient_master.bit_id` (0~426)를 인덱스로 Redis에 비트 배열로 캐싱된다. 보유하면 1, 미보유면 0.
 
-> **현재 상태:** BitSet 캐시는 F-03(레시피 추천) 구현 시 활성화 예정. 현재 inventory 엔드포인트는 DB만 사용한다.
-
 ```
 예) bit_id=0 (쌀) 보유, bit_id=2 (계란) 보유, bit_id=5 (우유) 미보유
 → ...001 0101  (이진수)
@@ -662,13 +793,15 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 
 ### 2. 비트마스킹 레시피 매칭
 
-각 레시피는 필요 재료의 `bit_id` 집합으로 구성된 `requirement_mask`를 보유한다. AND 연산으로 조리 가능 여부를 O(1)에 판단한다.
+각 레시피는 필요 재료의 `bit_id` 집합으로 구성된 `recipe_bit`을 보유한다. AND 연산으로 조리 가능 여부를 O(1)에 판단한다.
+
+> **네이밍 매핑:** `recipe_bit`은 DB 컬럼명(`recipe.recipe_bit`)이자 코드에서 직접 참조하는 이름(`r.recipe_bit`, `recipe_service.py`). 알고리즘 문서에서 종종 "requirement_mask"로 불리는 개념과 동일하다.
 
 ```python
 # 조리 가능 조건
-(user_bitset & recipe_mask) == recipe_mask
+(user_bitset & recipe_bit) == recipe_bit
 
-# requirement_mask 생성
+# recipe_bit 생성
 mask = 0
 for ingredient in recipe.ingredients:
     mask |= (1 << ingredient.bit_id)
@@ -727,7 +860,7 @@ score_recipe = Σ score_ingredient  (레시피에 포함된 보유 재료 전체
 | — | 식재료 마스터 조회 | `GET /ingredients`, `GET /ingredients/{id}` | ✅ 완료 |
 | F-01 | 식재료 등록 | `POST /inventory` | ✅ 완료 |
 | F-02 | 재고 대시보드 (신호등 + α-스코어) | `GET /inventory` | ✅ 완료 |
-| F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | 🔲 예정 |
+| F-03 | 레시피 추천 (비트마스킹 + α-스코어 정렬) | `GET /recipes` | ✅ 완료 |
 | F-04 | 요리 완료 처리 (FIFO 차감) | `POST /recipes/{id}/complete` | 🔲 예정 |
 | F-05 | 재고 수정·삭제 | `PATCH /inventory/{id}`, `DELETE /inventory/{id}` | ✅ 완료 |
 

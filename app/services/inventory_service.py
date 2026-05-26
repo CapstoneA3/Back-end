@@ -4,13 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
+import redis.asyncio as aioredis
 from app.models.ingredient import IngredientMaster
 from app.models.inventory import UserInventory
 from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard, InventoryUpdate
+from app.services.bitset_service import set_bit, clear_bit
 
 
 async def register_ingredient(
     db: AsyncSession,
+    redis: aioredis.Redis,
     user_id: str,
     data: InventoryCreate,
 ) -> UserInventory:
@@ -37,6 +40,7 @@ async def register_ingredient(
     await db.commit()
     await db.refresh(item)
     item.ingredient = ingredient  # refresh 후 관계 재할당 (lazy="raise" 우회)
+    await set_bit(redis, user_id, ingredient.bit_id, db)
     return item
 
 
@@ -95,8 +99,27 @@ async def get_dashboard(
     return InventoryDashboard(items=reads, total=len(reads))
 
 
+async def _clear_bit_if_last(
+    db: AsyncSession,
+    redis: aioredis.Redis,
+    user_id: str,
+    ingredient_master_id: int,
+) -> None:
+    remaining = await db.execute(
+        select(UserInventory).where(
+            UserInventory.user_id == user_id,
+            UserInventory.ingredient_master_id == ingredient_master_id,
+        )
+    )
+    if remaining.scalars().first() is None:
+        ingredient = await db.get(IngredientMaster, ingredient_master_id)
+        if ingredient is not None:
+            await clear_bit(redis, user_id, ingredient.bit_id, db)
+
+
 async def delete_inventory_item(
     db: AsyncSession,
+    redis: aioredis.Redis,
     user_id: str,
     inventory_id: int,
 ) -> None:
@@ -106,12 +129,15 @@ async def delete_inventory_item(
     if item.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    ingredient_master_id = item.ingredient_master_id
     await db.delete(item)
     await db.commit()
+    await _clear_bit_if_last(db, redis, user_id, ingredient_master_id)
 
 
 async def update_inventory_item(
     db: AsyncSession,
+    redis: aioredis.Redis,
     user_id: str,
     inventory_id: int,
     data: InventoryUpdate,
@@ -124,8 +150,10 @@ async def update_inventory_item(
 
     if data.quantity is not None:
         if data.quantity == 0:
+            ingredient_master_id = item.ingredient_master_id
             await db.delete(item)
             await db.commit()
+            await _clear_bit_if_last(db, redis, user_id, ingredient_master_id)
             return item
         else:
             item.quantity = data.quantity
