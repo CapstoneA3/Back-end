@@ -68,3 +68,32 @@ def test_ingredient_deduction_result_schema():
     )
     assert r.deducted == Decimal("200.0")
     assert len(r.rows_affected) == 1
+
+
+# ─── _alpha_score tests ────────────────────────────────────────────
+
+from app.services.cooking_service import _alpha_score
+
+
+def test_alpha_score_one_day_left():
+    exp = date.today() + timedelta(days=1)
+    assert _alpha_score(3.0, 200.0, exp) == 3.0 * 200.0 / (1 ** 2 + 1)  # 300.0
+
+
+def test_alpha_score_clips_expired_to_one():
+    exp = date.today() - timedelta(days=5)  # 이미 만료
+    assert _alpha_score(1.0, 100.0, exp) == 1.0 * 100.0 / (1 ** 2 + 1)  # 50.0
+
+
+def test_alpha_score_sooner_expiry_ranks_higher():
+    today = date.today()
+    urgent = _alpha_score(1.0, 100.0, today + timedelta(days=1))
+    safe = _alpha_score(1.0, 100.0, today + timedelta(days=10))
+    assert urgent > safe
+
+
+def test_alpha_score_larger_quantity_ranks_higher_same_expiry():
+    today = date.today()
+    big = _alpha_score(1.0, 200.0, today + timedelta(days=5))
+    small = _alpha_score(1.0, 100.0, today + timedelta(days=5))
+    assert big > small
