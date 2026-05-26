@@ -82,3 +82,15 @@ async def test_scan_receipt_timeout_propagates():
     with patch("app.services.ocr_service.httpx.AsyncClient", return_value=cm):
         with pytest.raises(httpx.TimeoutException):
             await scan_receipt(b"fake_image", "receipt.jpg")
+
+
+@pytest.mark.asyncio
+async def test_scan_receipt_http_error_propagates():
+    mock_resp = MagicMock()
+    mock_request = MagicMock()
+    mock_resp.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("401 Unauthorized", request=mock_request, response=mock_resp)
+    )
+    with _patch_client(mock_resp):
+        with pytest.raises(httpx.HTTPStatusError):
+            await scan_receipt(b"fake_image", "receipt.jpg")
