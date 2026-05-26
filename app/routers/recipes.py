@@ -7,7 +7,9 @@ from app.core.redis_client import get_redis
 from app.dependencies.auth import get_current_user_id
 from app.schemas.recipe import RecipeRecommendList, RecipeDetailRead
 from app.schemas.common import ApiResponse
+from app.schemas.cooking import CookRequest, CookResult
 from app.services.recipe_service import get_recommended_recipes, get_recipe_detail
+from app.services.cooking_service import cook_recipe
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -51,3 +53,33 @@ async def get_recipe(
 ):
     recipe = await get_recipe_detail(db, recipe_id)
     return ApiResponse(success=True, data=recipe)
+
+
+@router.post(
+    "/{recipe_id}/cook",
+    response_model=ApiResponse[CookResult],
+    status_code=200,
+    summary="요리 완료 처리",
+    description=(
+        "레시피를 채택하여 요리를 완료합니다.\n\n"
+        "- `ingredients`에 포함된 재료만 차감 (레시피에 있어도 목록 미포함 시 차감 안 함)\n"
+        "- α-스코어 내림차순으로 재고 우선 차감 (유통기한 임박·수량 많은 항목 먼저)\n"
+        "- 재고 부족 시 보유량만큼 부분 차감 (`deducted < requested`)\n"
+        "- 재고 완전 소진 시 Redis BitSet 해당 비트 자동 클리어\n\n"
+        "**Bearer 토큰 필수.**"
+    ),
+    responses={
+        **_AUTH_401,
+        404: {"description": "존재하지 않는 recipe_id"},
+    },
+    openapi_extra=_BEARER,
+)
+async def cook_recipe_endpoint(
+    recipe_id: int,
+    data: CookRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    result = await cook_recipe(db, redis, user_id, recipe_id, data)
+    return ApiResponse(success=True, data=result, message="요리가 완료되었습니다.")
