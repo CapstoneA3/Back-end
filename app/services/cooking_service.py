@@ -39,4 +39,89 @@ async def cook_recipe(
     if not data.ingredients:
         return CookResult(recipe_id=recipe_id, recipe_name=recipe.name, deductions=[])
 
-    raise NotImplementedError  # Task 5에서 구현
+    requested_ids = [u.ingredient_master_id for u in data.ingredients]
+
+    im_result = await db.execute(
+        select(IngredientMaster).where(IngredientMaster.id.in_(requested_ids))
+    )
+    ingredient_masters: dict[int, IngredientMaster] = {
+        im.id: im for im in im_result.scalars().all()
+    }
+
+    inv_result = await db.execute(
+        select(UserInventory).where(
+            UserInventory.user_id == user_id,
+            UserInventory.ingredient_master_id.in_(requested_ids),
+        )
+    )
+    all_items = inv_result.scalars().all()
+
+    items_by_id: dict[int, list[UserInventory]] = defaultdict(list)
+    for item in all_items:
+        items_by_id[item.ingredient_master_id].append(item)
+
+    deductions: list[IngredientDeductionResult] = []
+    depleted: list[tuple[int, int]] = []  # (ingredient_master_id, bit_id)
+
+    for usage in data.ingredients:
+        mid = usage.ingredient_master_id
+        im = ingredient_masters.get(mid)
+        ingredient_name = im.name if im else str(mid)
+        rf = float(im.risk_factor) if im else 1.0
+
+        rows = list(items_by_id.get(mid, []))
+        rows.sort(
+            key=lambda r: _alpha_score(rf, float(r.quantity), r.expire_date),
+            reverse=True,
+        )
+
+        remaining = float(usage.quantity)
+        total_deducted = 0.0
+        total_remaining = sum(float(r.quantity) for r in rows)
+        rows_affected: list[InventoryDeduction] = []
+
+        for row in rows:
+            if remaining <= 0:
+                break
+            row_qty = float(row.quantity)
+            if remaining >= row_qty:
+                total_deducted += row_qty
+                total_remaining -= row_qty
+                remaining -= row_qty
+                rows_affected.append(
+                    InventoryDeduction(inventory_id=row.id, deducted=Decimal(str(round(row_qty, 10))), deleted=True)
+                )
+                await db.delete(row)
+            else:
+                deducted = remaining
+                total_deducted += deducted
+                total_remaining -= deducted
+                row.quantity = Decimal(str(round(row_qty - deducted, 10)))
+                remaining = 0
+                rows_affected.append(
+                    InventoryDeduction(inventory_id=row.id, deducted=Decimal(str(round(deducted, 10))), deleted=False)
+                )
+
+        if rows and total_remaining < 1e-9 and im is not None:
+            depleted.append((mid, im.bit_id))
+
+        deductions.append(
+            IngredientDeductionResult(
+                ingredient_master_id=mid,
+                ingredient_name=ingredient_name,
+                requested=usage.quantity,
+                deducted=Decimal(str(round(total_deducted, 10))),
+                rows_affected=rows_affected,
+            )
+        )
+
+    await db.commit()
+
+    for _, bit_id in depleted:
+        await clear_bit(redis, user_id, bit_id, db)
+
+    return CookResult(
+        recipe_id=recipe_id,
+        recipe_name=recipe.name,
+        deductions=deductions,
+    )
