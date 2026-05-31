@@ -21,6 +21,22 @@ def test_ingredient_master_read_schema():
     obj = IngredientMasterRead.model_validate(data)
     assert obj.name == "양파"
     assert obj.risk_factor == Decimal("1")
+    assert obj.allowed_units == []
+
+
+def test_ingredient_master_read_schema_with_allowed_units():
+    data = {
+        "id": 1,
+        "bit_id": 0,
+        "name": "양파",
+        "category": "채소",
+        "default_shelf_days": 30,
+        "risk_factor": Decimal("1"),
+        "allowed_units": ["g", "개", "묶음", "봉지"],
+    }
+    obj = IngredientMasterRead.model_validate(data)
+    assert obj.allowed_units == ["g", "개", "묶음", "봉지"]
+    assert obj.allowed_units[0] == "g"
 
 
 def _make_ingredient(name="양파", category="채소", bit_id=0):
