@@ -34,14 +34,8 @@ async def list_ingredients(
     result = await db.execute(stmt)
     items = result.scalars().all()
     data = [
-        IngredientMasterRead.model_construct(
-            id=item.id,
-            bit_id=item.bit_id,
-            name=item.name,
-            category=item.category,
-            default_shelf_days=item.default_shelf_days,
-            risk_factor=item.risk_factor,
-            allowed_units=CATEGORY_UNITS.get(item.category, ["개", "g"]),
+        IngredientMasterRead.model_validate(item).model_copy(
+            update={"allowed_units": CATEGORY_UNITS.get(item.category, ["개", "g"])}
         )
         for item in items
     ]
@@ -64,13 +58,7 @@ async def get_ingredient(ingredient_id: int, db: AsyncSession = Depends(get_db))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Ingredient not found")
-    data = IngredientMasterRead.model_construct(
-        id=item.id,
-        bit_id=item.bit_id,
-        name=item.name,
-        category=item.category,
-        default_shelf_days=item.default_shelf_days,
-        risk_factor=item.risk_factor,
-        allowed_units=CATEGORY_UNITS.get(item.category, ["개", "g"]),
+    data = IngredientMasterRead.model_validate(item).model_copy(
+        update={"allowed_units": CATEGORY_UNITS.get(item.category, ["개", "g"])}
     )
     return ApiResponse(success=True, data=data)
