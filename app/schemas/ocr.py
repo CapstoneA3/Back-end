@@ -17,7 +17,7 @@ class OcrCandidate(BaseModel):
 
 class OcrScanCandidate(BaseModel):
     raw_text: str
-    recommended_action: Literal["register", "skip"]
+    recommended_action: Literal["register", "review", "skip"]
     candidates: list[OcrCandidate]
 
 
