@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 from app.core.database import get_db
+from app.core.unit_mapping import CATEGORY_UNITS
 from app.models.ingredient import IngredientMaster
 from app.schemas.ingredient import IngredientMasterRead
 from app.schemas.common import ApiResponse
@@ -32,7 +33,19 @@ async def list_ingredients(
         stmt = stmt.where(IngredientMaster.category == category)
     result = await db.execute(stmt)
     items = result.scalars().all()
-    return ApiResponse(success=True, data=items)
+    data = [
+        IngredientMasterRead.model_construct(
+            id=item.id,
+            bit_id=item.bit_id,
+            name=item.name,
+            category=item.category,
+            default_shelf_days=item.default_shelf_days,
+            risk_factor=item.risk_factor,
+            allowed_units=CATEGORY_UNITS.get(item.category, ["개", "g"]),
+        )
+        for item in items
+    ]
+    return ApiResponse(success=True, data=data)
 
 
 @router.get(
@@ -51,4 +64,13 @@ async def get_ingredient(ingredient_id: int, db: AsyncSession = Depends(get_db))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Ingredient not found")
-    return ApiResponse(success=True, data=item)
+    data = IngredientMasterRead.model_construct(
+        id=item.id,
+        bit_id=item.bit_id,
+        name=item.name,
+        category=item.category,
+        default_shelf_days=item.default_shelf_days,
+        risk_factor=item.risk_factor,
+        allowed_units=CATEGORY_UNITS.get(item.category, ["개", "g"]),
+    )
+    return ApiResponse(success=True, data=data)

@@ -1,4 +1,5 @@
 from app.schemas.ingredient import IngredientMasterRead
+from app.core.unit_mapping import CATEGORY_UNITS
 from decimal import Decimal
 from unittest.mock import MagicMock, AsyncMock
 
@@ -82,3 +83,29 @@ async def test_get_ingredient_not_found(client, mock_db):
 
     resp = await client.get("/api/v1/ingredients/999")
     assert resp.status_code == 404
+
+
+async def test_get_ingredients_list_has_allowed_units(client, mock_db):
+    ing = _make_ingredient(category="채소")
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [ing]
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    resp = await client.get("/api/v1/ingredients")
+    assert resp.status_code == 200
+    data = resp.json()["data"][0]
+    assert data["allowed_units"] == CATEGORY_UNITS["채소"]
+    assert data["allowed_units"][0] == "g"
+
+
+async def test_get_ingredient_by_id_has_allowed_units(client, mock_db):
+    ing = _make_ingredient(category="육류")
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = ing
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    resp = await client.get("/api/v1/ingredients/1")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["allowed_units"] == CATEGORY_UNITS["육류"]
+    assert data["allowed_units"][0] == "g"
