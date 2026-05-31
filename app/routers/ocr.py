@@ -27,8 +27,15 @@ ALLOWED_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"}
     summary="영수증 OCR 스캔",
     description=(
         "영수증 이미지를 OCR로 분석하여 식재료 후보 목록을 반환합니다.\n\n"
-        "- `recommended_action: register` — 매칭 신뢰도 70% 이상, 등록 권장\n"
-        "- `recommended_action: skip` — 매칭 실패 또는 비식재료 품목\n\n"
+        "브랜드명·원산지·용량 등 비식재료 텍스트를 전처리로 제거한 뒤 "
+        "ingredient_master와 퍼지 매칭하여 신뢰도에 따라 액션을 분류합니다.\n\n"
+        "| `recommended_action` | 기준 | 프론트 처리 |\n"
+        "|---|---|---|\n"
+        "| `register` | 신뢰도 90% 이상 또는 정확 일치 | 자동 선택, 수량 입력 후 confirm |\n"
+        "| `review` | 신뢰도 60~89% | raw_text를 보여주고 사용자가 검색·선택 후 confirm |\n"
+        "| `skip` | 신뢰도 60% 미만 또는 비식재료(부가세·카드 등) | 목록에서 제외 |\n\n"
+        "`review` 항목은 `/api/v1/ingredients?search=` 로 올바른 식재료를 검색하여 "
+        "`ingredient_master_id`를 직접 지정한 뒤 `/ocr/confirm`에 전달합니다.\n\n"
         "**Bearer 토큰 필수.**"
     ),
     responses={
@@ -72,7 +79,10 @@ async def scan_receipt_endpoint(
     summary="OCR 스캔 결과 확정 등록",
     description=(
         "사용자가 확정한 품목을 인벤토리에 일괄 등록합니다.\n\n"
-        "- `expire_date` 생략 시 `default_shelf_days` 기준 자동 계산\n"
+        "`/ocr/scan` 결과에서 `register` 항목은 자동 선택, `review` 항목은 사용자가 "
+        "검색을 통해 올바른 `ingredient_master_id`로 교체한 뒤 이 엔드포인트에 전달합니다.\n\n"
+        "- `ingredient_master_id` — scan 결과의 candidates 중 선택하거나 검색으로 직접 지정\n"
+        "- `expire_date` 생략 시 ingredient_master의 `default_shelf_days` 기준 자동 계산\n"
         "- 일부 항목 실패 시 성공 항목만 등록되고, 실패 항목은 `errors`에 포함됩니다.\n\n"
         "**Bearer 토큰 필수.**"
     ),
