@@ -23,8 +23,9 @@ _AUTH_401 = {401: {"description": "Authorization 헤더 없음 또는 토큰 만
     summary="추천 레시피 목록",
     description=(
         "사용자 냉장고 재료(BitSet)로 만들 수 있는 레시피를 α-스코어 순으로 반환합니다.\n\n"
-        "- BitSet AND 연산으로 조리 가능 레시피 필터링\n"
-        "- α-스코어: 유통기한 임박·위험도 높은 재료를 소비하는 레시피 우선 순위\n\n"
+        "- `min_match_rate`로 재료 보유 비율 임계값 조절 (기본 0.8 = 80% 이상 보유 시 추천)\n"
+        "- α-스코어: 유통기한 임박·위험도 높은 재료를 소비하는 레시피 우선 순위\n"
+        "- `missing_count`/`missing_ingredients`: 부족한 재료 수·목록 반환\n\n"
         "**Bearer 토큰 필수.**"
     ),
     responses=_AUTH_401,
@@ -32,11 +33,15 @@ _AUTH_401 = {401: {"description": "Authorization 헤더 없음 또는 토큰 만
 )
 async def list_recipes(
     limit: int = Query(default=20, ge=1, le=100, description="반환할 레시피 최대 수"),
+    min_match_rate: float = Query(
+        default=0.8, ge=0.0, le=1.0,
+        description="최소 재료 보유 비율 (0.0~1.0). 기본값 0.8 = 재료의 80% 이상 보유 시 추천",
+    ),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    result = await get_recommended_recipes(db, redis, user_id, limit)
+    result = await get_recommended_recipes(db, redis, user_id, limit, min_match_rate)
     return ApiResponse(success=True, data=result)
 
 
