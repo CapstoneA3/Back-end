@@ -81,7 +81,7 @@ def test_recipe_detail_read_schema():
 
 from datetime import date, timedelta
 from unittest.mock import MagicMock
-from app.services.recipe_service import _calc_score, _filter_by_bitset, _score_recipe
+from app.services.recipe_service import _calc_score, _calc_match, _score_recipe
 
 
 def test_calc_score_normal():
@@ -96,24 +96,32 @@ def test_calc_score_clips_to_1_when_expired():
     assert score == 1.0 * 100.0 / (1**2 + 1)   # 50.0  (days_left clamped to 1)
 
 
-def test_filter_by_bitset_exact_match():
+def test_calc_match_exact_match():
     user_bitset = (1 << 0) | (1 << 2)
     recipe_mask = (1 << 0) | (1 << 2)
-    assert _filter_by_bitset(user_bitset, [recipe_mask]) == [True]
+    rate, missing = _calc_match(user_bitset, recipe_mask)
+    assert rate == 1.0
+    assert missing == 0
 
 
-def test_filter_by_bitset_missing_ingredient():
+def test_calc_match_partial_match():
     user_bitset = (1 << 0)
     recipe_mask = (1 << 0) | (1 << 2)
-    assert _filter_by_bitset(user_bitset, [recipe_mask]) == [False]
+    rate, missing = _calc_match(user_bitset, recipe_mask)
+    assert rate == 0.5
+    assert missing == 1
 
 
-def test_filter_by_bitset_skips_none_mask():
-    assert _filter_by_bitset((1 << 0), [None]) == [False]
+def test_calc_match_none_mask():
+    rate, missing = _calc_match((1 << 0), None)
+    assert rate == 0.0
+    assert missing == 0
 
 
-def test_filter_by_bitset_skips_zero_mask():
-    assert _filter_by_bitset((1 << 0), [0]) == [False]
+def test_calc_match_zero_mask():
+    rate, missing = _calc_match((1 << 0), 0)
+    assert rate == 0.0
+    assert missing == 0
 
 
 def test_score_recipe_sums_ingredient_scores():
