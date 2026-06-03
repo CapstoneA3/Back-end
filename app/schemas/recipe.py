@@ -30,6 +30,8 @@ class RecipeRecommendItem(BaseModel):
     servings: Optional[int] = Field(default=None, description="인분 수")
     score: float = Field(description="α-스코어 합산 (높을수록 우선 추천)")
     rank: int = Field(description="추천 순위 (1위부터)")
+    missing_count: int = Field(default=0, description="부족한 재료 수 (0이면 완전 조리 가능)")
+    missing_ingredients: list[str] = Field(default_factory=list, description="부족한 재료명 목록")
     ingredients: list[RecipeIngredientRead] = Field(description="필요 재료 목록")
 
 
