@@ -30,7 +30,14 @@ def test_is_cookable_superset():
     assert is_cookable(bitset, (1 << 0) | (1 << 1)) is True
 
 
-def test_is_cookable_missing_ingredient():
+def test_is_cookable_partial_match_above_threshold():
+    # 4/5 = 80% → True (기본 임계값 0.8)
+    bitset = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3)
+    assert is_cookable(bitset, (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4)) is True
+
+
+def test_is_cookable_partial_match_below_threshold():
+    # 1/2 = 50% → False
     bitset = (1 << 0)
     assert is_cookable(bitset, (1 << 0) | (1 << 1)) is False
 

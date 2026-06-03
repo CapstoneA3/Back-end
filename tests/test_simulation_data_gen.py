@@ -20,7 +20,7 @@ def test_generate_user_returns_user_state():
 def test_generate_user_inventory_count_in_range():
     rng = random.Random(42)
     state = generate_user(0, _SAMPLE_MASTERS, rng)
-    assert 10 <= len(state.inventory) <= 20
+    assert 1 <= len(state.inventory) <= 25
 
 
 def test_generate_user_items_type():

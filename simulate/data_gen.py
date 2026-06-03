@@ -29,16 +29,37 @@ def generate_user(
     user_id: int,
     ingredient_master: list[dict],
     rng: _random_module.Random,
+    recipes: list[dict] | None = None,
 ) -> UserState:
-    n = len(ingredient_master)
-    lo = min(10, n)
-    hi = min(20, n)
-    k = rng.randint(lo, hi)
-    selected = rng.sample(ingredient_master, k=k)
+    """레시피 기반으로 인벤토리 생성.
+
+    recipes가 주어지면 3~5개 레시피의 재료를 먼저 배정해 조리 가능 레시피를 보장한다.
+    이후 랜덤 재료를 추가해 총 15~25개를 채운다.
+    """
+    ing_by_id: dict[int, dict] = {ing["id"]: ing for ing in ingredient_master}
     today = date.today()
 
+    # 레시피 재료 수집 (조리 가능 보장)
+    selected_ids: list[int] = []
+    if recipes:
+        n_recipes = rng.randint(3, 5)
+        for recipe in rng.sample(recipes, k=min(n_recipes, len(recipes))):
+            for ri in recipe.get("ingredients", []):
+                mid = ri.get("ingredient_master_id")
+                if mid and mid in ing_by_id and mid not in selected_ids:
+                    selected_ids.append(mid)
+
+    # 랜덤 재료로 나머지 채우기 (총 15~25개)
+    target = rng.randint(15, 25)
+    remaining = [ing["id"] for ing in ingredient_master if ing["id"] not in selected_ids]
+    extra_count = max(0, target - len(selected_ids))
+    if extra_count > 0 and remaining:
+        selected_ids += rng.sample(remaining, k=min(extra_count, len(remaining)))
+
+    selected = [ing_by_id[mid] for mid in selected_ids if mid in ing_by_id]
+
     # 임박 재료 비율 ~25% 확보
-    urgent_count = max(1, round(k * 0.25))
+    urgent_count = max(1, round(len(selected) * 0.25))
     items: list[VirtualInventoryItem] = []
 
     for idx, ing in enumerate(selected):

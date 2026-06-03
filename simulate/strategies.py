@@ -6,10 +6,15 @@ from simulate.data_gen import UserState
 from simulate.engine import build_bitset, _calc_score
 
 
+MIN_MATCH_RATE = 0.8
+
+
 def is_cookable(user_bitset: int, recipe_bit: int | None) -> bool:
     if not recipe_bit:
         return False
-    return (user_bitset & recipe_bit) == recipe_bit
+    total = bin(recipe_bit).count("1")
+    matched = bin(user_bitset & recipe_bit).count("1")
+    return matched / total >= MIN_MATCH_RATE
 
 
 def pick_alpha_score(

@@ -49,7 +49,7 @@ def run_simulation(n_users: int, show: bool = True) -> None:
     print(f"Simulating {n_users:,} users × {SIM_DAYS} days...")
     for uid in tqdm.tqdm(range(n_users)):
         user_rng = random.Random(SEED + uid)
-        state_a = generate_user(uid, ingredient_master, user_rng)
+        state_a = generate_user(uid, ingredient_master, user_rng, recipes)
         state_b = deepcopy(state_a)
         rng_a = random.Random(SEED + uid * 10_000)
         rng_b = random.Random(SEED + uid * 10_000)
