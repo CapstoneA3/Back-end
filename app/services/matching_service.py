@@ -77,8 +77,8 @@ async def match_items(db: AsyncSession, raw_items: list[OcrRawItem]) -> list[Ocr
 
     result = await db.execute(select(IngredientMaster))
     masters = result.scalars().all()
-    name_to_id: dict[str, int] = {m.name: m.id for m in masters}
-    names = list(name_to_id.keys())
+    name_to_master: dict[str, IngredientMaster] = {m.name: m for m in masters}
+    names = list(name_to_master.keys())
 
     candidates: list[OcrScanCandidate] = []
     for item in raw_items:
@@ -94,14 +94,16 @@ async def match_items(db: AsyncSession, raw_items: list[OcrRawItem]) -> list[Ocr
         normalized = _normalize(keyword)
 
         # 정확히 일치하면 바로 register
-        if normalized in name_to_id:
+        if normalized in name_to_master:
+            m = name_to_master[normalized]
             candidates.append(OcrScanCandidate(
                 raw_text=text,
                 recommended_action="register",
                 candidates=[OcrCandidate(
-                    ingredient_master_id=name_to_id[normalized],
+                    ingredient_master_id=m.id,
                     ingredient_name=normalized,
                     confidence=100.0,
+                    default_shelf_days=m.default_shelf_days,
                 )],
             ))
             continue
@@ -111,9 +113,10 @@ async def match_items(db: AsyncSession, raw_items: list[OcrRawItem]) -> list[Ocr
         )
         match_candidates = [
             OcrCandidate(
-                ingredient_master_id=name_to_id[name],
+                ingredient_master_id=name_to_master[name].id,
                 ingredient_name=name,
                 confidence=float(score),
+                default_shelf_days=name_to_master[name].default_shelf_days,
             )
             for name, score, _ in fuzzy_matches
         ]

@@ -13,6 +13,7 @@ class OcrCandidate(BaseModel):
     ingredient_master_id: int = Field(description="ingredient_master 고유 ID")
     ingredient_name: str = Field(description="매칭된 식재료 표준명")
     confidence: float = Field(ge=0, le=100, description="매칭 신뢰도 (0~100)")
+    default_shelf_days: int = Field(description="표준 소비기한 (일). confirm 시 expire_date 생략하면 이 값으로 자동 계산됨")
 
 
 class OcrScanCandidate(BaseModel):
