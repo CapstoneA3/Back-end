@@ -8,7 +8,9 @@ import redis.asyncio as aioredis
 from app.models.ingredient import IngredientMaster
 from app.models.inventory import UserInventory
 from app.schemas.inventory import InventoryCreate, InventoryRead, InventoryDashboard, InventoryUpdate
+from app.schemas.ingredient import IngredientMasterRead
 from app.services.bitset_service import set_bit, clear_bit
+from app.core.unit_mapping import CATEGORY_UNITS
 
 
 async def register_ingredient(
@@ -76,6 +78,9 @@ async def get_dashboard(
         rf = float(item.ingredient.risk_factor)
         score = _calc_score(rf, float(item.quantity), item.expire_date)
         tl = _traffic_light(item.expire_date, rf)
+        ingredient_read = IngredientMasterRead.model_validate(item.ingredient).model_copy(
+            update={"allowed_units": CATEGORY_UNITS.get(item.ingredient.category, ["개", "g"])}
+        )
         reads.append(
             InventoryRead(
                 id=item.id,
@@ -85,7 +90,7 @@ async def get_dashboard(
                 unit=item.unit,
                 expire_date=item.expire_date,
                 created_at=item.created_at,
-                ingredient=item.ingredient,
+                ingredient=ingredient_read,
                 traffic_light=tl,
                 score=score,
             )

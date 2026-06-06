@@ -8,7 +8,10 @@ from app.schemas.ocr import OcrRawItem
 
 def _make_db_mock(names: list[tuple[int, str]]) -> AsyncMock:
     """(id, name) 리스트로 ingredient_master DB mock 생성."""
-    masters = [SimpleNamespace(id=id_, name=name) for id_, name in names]
+    masters = [
+        SimpleNamespace(id=id_, name=name, default_shelf_days=7, category="채소")
+        for id_, name in names
+    ]
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = masters
     db = AsyncMock()

@@ -21,22 +21,22 @@ def test_ocr_raw_item():
 
 
 def test_ocr_candidate():
-    c = OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.2)
+    c = OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.2, default_shelf_days=5, default_unit="g")
     assert c.confidence == 95.2
 
 
 def test_ocr_candidate_rejects_invalid_confidence():
     with pytest.raises(ValidationError):
-        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=150.0)
+        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=150.0, default_shelf_days=5, default_unit="g")
     with pytest.raises(ValidationError):
-        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=-1.0)
+        OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=-1.0, default_shelf_days=5, default_unit="g")
 
 
 def test_ocr_scan_candidate_register():
     c = OcrScanCandidate(
         raw_text="닭가슴살200g",
         recommended_action="register",
-        candidates=[OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.2)],
+        candidates=[OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.2, default_shelf_days=5, default_unit="g")],
     )
     assert c.recommended_action == "register"
     assert len(c.candidates) == 1

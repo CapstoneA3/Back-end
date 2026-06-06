@@ -16,7 +16,7 @@ def _make_scan_candidates() -> list[OcrScanCandidate]:
         OcrScanCandidate(
             raw_text="닭가슴살200g",
             recommended_action="register",
-            candidates=[OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.0)],
+            candidates=[OcrCandidate(ingredient_master_id=5, ingredient_name="닭가슴살", confidence=95.0, default_shelf_days=5, default_unit="g")],
         ),
         OcrScanCandidate(raw_text="비닐봉투", recommended_action="skip", candidates=[]),
     ]
