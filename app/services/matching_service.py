@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ingredient import IngredientMaster
 from app.schemas.ocr import OcrRawItem, OcrScanCandidate, OcrCandidate
+from app.core.unit_mapping import INGREDIENT_UNITS, CATEGORY_UNITS
 
 _EXCLUDE_KEYWORDS = frozenset([
     "비닐봉투", "봉투", "쿠폰", "적립금", "할인", "부가세", "합계",
@@ -49,6 +50,13 @@ _PAREN_RE = re.compile(r"\([^)]*\)")
 
 _REGISTER_THRESHOLD = 90
 _REVIEW_THRESHOLD = 60
+
+
+def _get_default_unit(name: str, category: str) -> str:
+    if name in INGREDIENT_UNITS:
+        return INGREDIENT_UNITS[name]
+    units = CATEGORY_UNITS.get(category)
+    return units[0] if units else "개"
 
 
 def _extract_keyword(text: str) -> str:
@@ -104,6 +112,7 @@ async def match_items(db: AsyncSession, raw_items: list[OcrRawItem]) -> list[Ocr
                     ingredient_name=normalized,
                     confidence=100.0,
                     default_shelf_days=m.default_shelf_days,
+                    default_unit=_get_default_unit(normalized, m.category),
                 )],
             ))
             continue
@@ -117,6 +126,7 @@ async def match_items(db: AsyncSession, raw_items: list[OcrRawItem]) -> list[Ocr
                 ingredient_name=name,
                 confidence=float(score),
                 default_shelf_days=name_to_master[name].default_shelf_days,
+                default_unit=_get_default_unit(name, name_to_master[name].category),
             )
             for name, score, _ in fuzzy_matches
         ]

@@ -106,6 +106,7 @@ async def confirm_receipt_endpoint(
             inv_create = InventoryCreate(
                 ingredient_master_id=item.ingredient_master_id,
                 quantity=item.quantity,
+                unit=item.unit,
                 expire_date=item.expire_date,
             )
             result = await register_ingredient(db, redis, user_id, inv_create)

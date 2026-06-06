@@ -14,6 +14,7 @@ class OcrCandidate(BaseModel):
     ingredient_name: str = Field(description="매칭된 식재료 표준명")
     confidence: float = Field(ge=0, le=100, description="매칭 신뢰도 (0~100)")
     default_shelf_days: int = Field(description="표준 소비기한 (일). confirm 시 expire_date 생략하면 이 값으로 자동 계산됨")
+    default_unit: str = Field(description="식재료 기본 단위 (예: 개, g, ml). confirm 시 unit 기본값으로 사용")
 
 
 class OcrScanCandidate(BaseModel):
@@ -47,6 +48,10 @@ class OcrConfirmItem(BaseModel):
         )
     )
     quantity: Decimal = Field(gt=0, description="등록 수량 (소수점 가능, 0 초과)")
+    unit: str | None = Field(
+        default=None,
+        description="단위. 생략 시 scan 결과의 default_unit 또는 '개' 적용."
+    )
     expire_date: date | None = Field(
         default=None,
         description="유통기한 (YYYY-MM-DD). 생략 시 ingredient_master의 default_shelf_days 기준 자동 계산."
