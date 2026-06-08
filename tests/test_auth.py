@@ -5,12 +5,18 @@ from app.main import app
 from app.core.supabase_client import get_supabase
 
 
-def _make_auth_response(user_id="uuid-1234", email="test@example.com", token="access-tok"):
+def _make_auth_response(
+    user_id="uuid-1234",
+    email="test@example.com",
+    token="access-tok",
+    refresh="refresh-tok",
+):
     user = MagicMock()
     user.id = user_id
     user.email = email
     session = MagicMock()
     session.access_token = token
+    session.refresh_token = refresh
     session.token_type = "bearer"
     resp = MagicMock()
     resp.user = user
@@ -33,9 +39,12 @@ async def mock_supabase():
     supabase = MagicMock()
     supabase.auth.sign_up = AsyncMock(return_value=_make_auth_response())
     supabase.auth.sign_in_with_password = AsyncMock(
-        return_value=_make_auth_response(token="login-tok")
+        return_value=_make_auth_response(token="login-tok", refresh="login-refresh-tok")
     )
     supabase.auth.get_user = AsyncMock(return_value=_make_user_response())
+    supabase.auth.refresh_session = AsyncMock(
+        return_value=_make_auth_response(token="new-access-tok", refresh="new-refresh-tok")
+    )
     return supabase
 
 
@@ -59,6 +68,7 @@ async def test_signup_success(auth_client):
     body = resp.json()
     assert body["success"] is True
     assert body["data"]["access_token"] == "access-tok"
+    assert body["data"]["refresh_token"] == "refresh-tok"
     assert body["data"]["token_type"] == "bearer"
     assert body["data"]["user"]["email"] == "test@example.com"
     assert body["message"] == "회원가입이 완료되었습니다."
@@ -83,6 +93,7 @@ async def test_login_success(auth_client):
     body = resp.json()
     assert body["success"] is True
     assert body["data"]["access_token"] == "login-tok"
+    assert body["data"]["refresh_token"] == "login-refresh-tok"
 
 
 async def test_login_invalid_credentials(auth_client, mock_supabase):
@@ -126,3 +137,29 @@ async def test_me_invalid_token(auth_client, mock_supabase):
     )
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid or expired token"
+
+
+async def test_refresh_success(auth_client):
+    resp = await auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": "valid-refresh-tok"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["access_token"] == "new-access-tok"
+    assert body["data"]["refresh_token"] == "new-refresh-tok"
+    assert body["data"]["token_type"] == "bearer"
+
+
+async def test_refresh_invalid_token(auth_client, mock_supabase):
+    mock_supabase.auth.refresh_session = AsyncMock(
+        side_effect=Exception("Invalid refresh token")
+    )
+
+    resp = await auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": "bad-refresh-tok"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid or expired refresh token"

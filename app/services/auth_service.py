@@ -33,6 +33,7 @@ async def signup(supabase: AsyncClient, email: str, password: str) -> dict:
 
     return {
         "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
         "token_type": response.session.token_type,
         "user": {"id": str(response.user.id), "email": response.user.email},
     }
@@ -48,6 +49,23 @@ async def login(supabase: AsyncClient, email: str, password: str) -> dict:
 
     return {
         "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
         "token_type": response.session.token_type,
         "user": {"id": str(response.user.id), "email": response.user.email},
+    }
+
+
+async def refresh(supabase: AsyncClient, refresh_token: str) -> dict:
+    try:
+        response = await supabase.auth.refresh_session(refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    if response.session is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    return {
+        "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
+        "token_type": response.session.token_type,
     }

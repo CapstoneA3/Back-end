@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from supabase import AsyncClient
 from app.core.supabase_client import get_supabase
-from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, MeResponse
+from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, MeResponse, RefreshRequest, RefreshTokenResponse
 from app.schemas.common import ApiResponse
-from app.services.auth_service import signup, login
+from app.services.auth_service import signup, login, refresh
 from app.dependencies.auth import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -47,6 +47,27 @@ async def login_route(
     supabase: AsyncClient = Depends(get_supabase),
 ):
     result = await login(supabase, data.email, data.password)
+    return ApiResponse(success=True, data=result)
+
+
+@router.post(
+    "/refresh",
+    response_model=ApiResponse[RefreshTokenResponse],
+    summary="토큰 갱신",
+    description=(
+        "리프레시 토큰으로 새 액세스 토큰과 리프레시 토큰을 발급합니다.\n\n"
+        "- 액세스 토큰 만료 시 이 엔드포인트를 호출하여 재로그인 없이 세션을 유지하세요.\n"
+        "- 리프레시 토큰도 매 갱신마다 새로 발급됩니다 (rotation)."
+    ),
+    responses={
+        401: {"description": "유효하지 않거나 만료된 리프레시 토큰"},
+    },
+)
+async def refresh_route(
+    data: RefreshRequest,
+    supabase: AsyncClient = Depends(get_supabase),
+):
+    result = await refresh(supabase, data.refresh_token)
     return ApiResponse(success=True, data=result)
 
 

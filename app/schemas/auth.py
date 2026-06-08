@@ -30,8 +30,25 @@ class UserInfo(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT 액세스 토큰")
+    refresh_token: str = Field(description="리프레시 토큰 (액세스 토큰 갱신용)")
     token_type: str = Field(description="토큰 타입 (항상 'bearer')", examples=["bearer"])
     user: UserInfo
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(description="로그인 시 발급받은 리프레시 토큰")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"refresh_token": "<your-refresh-token>"}
+        }
+    }
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str = Field(description="새로 발급된 JWT 액세스 토큰")
+    refresh_token: str = Field(description="새로 발급된 리프레시 토큰")
+    token_type: str = Field(description="토큰 타입 (항상 'bearer')", examples=["bearer"])
 
 
 class MeResponse(BaseModel):
